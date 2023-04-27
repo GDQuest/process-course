@@ -9,7 +9,7 @@ The main script is located in `src/index.ts`, here's what it does:
 - Does any other course preprocessing we need.
 - Saves the processed content into a folder called `/content-gdschool-processed`.
 - Compresses the processed content as a zip archive and saves into the folder called `/content-gdschool-releases`.
-- 
+
 # Run this script locally
 Download the latest release for your platform, place it into the root folder of the course (next to`content-gdschool` folder), then run:
 ```
