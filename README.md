@@ -7,6 +7,24 @@ The main script is located in `src/index.ts`, it:
 - Saves the processed content into a folder called `/content-gdschool-processed`.
 - Compresses the processed content as a zip archive and saves into the folder called `/content-gdschool-releases`.
 
+# Run this script locally
+Download the latest release for your platform, place it into the root folder of the course (next to`content-gdschool` folder), then run:
+```
+chmod +x ./process-course-linux
+./process-course-linux
+```
+
+# Modify this script
+```
+git clone https://github.com/GDQuest/process-course
+cd ./process-course
+npm i
+npm run dev
+```
+The script will process the content from `./content-gdschool`.
+
+(The folder `./content-gdschool` in this repo contains demo content for testing purposes.)
+
 # Create a new release of the course
 To use this script to process a course and create a new release, take the file `workflows/release-course.yml`, and place it into the folder `.github/workflows` inside of the course repo.
 

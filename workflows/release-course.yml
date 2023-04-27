@@ -7,7 +7,7 @@ name: Create a Release
 on:
   push:
     tags:
-      - '*'
+      - "*.*.*"
 
 jobs:
   run-script:
