@@ -1,4 +1,4 @@
-This script processes the course content into a format compatible with the new GDSchool platform.
+This script processes the course content into the format compatible with the new GDSchool platform.
 
 The main script is located in `src/index.ts`, it:
 - Takes the content from a folder called `/content-gdschool` located in the same folder as the script.

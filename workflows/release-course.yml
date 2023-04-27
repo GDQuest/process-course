@@ -1,46 +1,30 @@
 # Create release of a course. This script should be placed in .github/workflows folder inside of the course repo
 # To create a release, create and push a new tag like so:
 # git tag v1.0.0 && git push --tags
-# Or, in github repo, go to Actions > Create a Release > Run Workflow
 # To make this workflow work, make sure to go to repo Settings > Actions > General > Workflow permissions and set it to "Read and Write permissions"
 name: Create a Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
-    # Trigger the workflow when a tag with the format 'v*' is pushed, like so:
-    # git tag v1.0.0 && git push --tags
-      - 'v*'
+      - '*'
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
-
-      # Clone the course processing script repo, install packages, and run it.
-      # - name: Setup Node.js
-      #   uses: actions/setup-node@v2
-      #   with:
-      #     node-version: 18
-
-      # - name: Clone script repository
-      #   run: git clone https://github.com/lumenwrites/process-course
-
-      # - name: Install dependencies
-      #   working-directory: process-course
-      #   run: |
-      #     npm ci
-      #     npm run start
-      # - name: Run course processing script
+        uses: actions/checkout@v3
 
       # Download and run the course processing script
-      # It will process the course, zip it, and output it into ./content-gdschool-releases/ folder
+      # I need to download the latest version of the script, and to find out what that is I use jq (command-line JSON processor)
+      - name: Install jq
+        run: |
+          sudo apt-get install jq
       - name: Download and extract compiled script
         run: |
-          wget https://github.com/lumenwrites/process-course/releases/download/v1.0.0/process-course-linux -O process-course
+          LATEST_RELEASE=$(curl --silent "https://api.github.com/repos/lumenwrites/process-course/releases/latest" | jq -r .assets[].browser_download_url | grep "process-course-linux")
+          wget $LATEST_RELEASE -O process-course
           chmod +x process-course
   
       - name: Run compiled script
@@ -67,3 +51,11 @@ jobs:
           files: |
             content-gdschool-releases/*.zip
           body_path: ${{ github.workspace }}-CHANGELOG.txt
+
+      # Automatically redeploy the website with the new content once the release has been created
+      # The first URL redeploys the main branch, the second one redeploys staging
+      # Settings > Git > Deploy Hooks https://vercel.com/gdquest/gdschool/settings/git
+      - name: Ping Vercel Deployment
+        run: |
+          curl -X POST https://api.vercel.com/v1/integrations/deploy/prj_F5wWV8VNTBKfwHujOhHukBYS5wLD/UTdoAJLfns
+          curl -X POST https://api.vercel.com/v1/integrations/deploy/prj_F5wWV8VNTBKfwHujOhHukBYS5wLD/xSPbB3N81Q
