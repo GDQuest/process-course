@@ -1,5 +1,7 @@
 This script processes the course content into the format compatible with the new GDSchool platform.
 
+This script is supposed to run on the course repos, triggered by a github workflow (`workflows/release-course.yml`). This workflow will download this script, run it on the content of the course, create a release of the course that contains the zip archive of the processed content. It will then tell Vercel to rebuild our website using this newly updated content.
+
 The main script is located in `src/index.ts`, here's what it does:
 - It takes the content from a folder called `/content-gdschool` located in the same folder as the script.
 - Rewrites the image paths from relative ones (like `images/course-thumbnail.png`) to absolute ones (like `/courses/learn-to-code-with-godot/introduction/images/course-thumbnail.png`)
@@ -7,9 +9,7 @@ The main script is located in `src/index.ts`, here's what it does:
 - Does any other course preprocessing we need.
 - Saves the processed content into a folder called `/content-gdschool-processed`.
 - Compresses the processed content as a zip archive and saves into the folder called `/content-gdschool-releases`.
-
-This script is supposed to run on the course repos, triggered by a github workflow (`workflows/release-course.yml`). This workflow will download this script, run it on the content of the course, create a release of the course that contains the zip archive of the processed content. It will then tell Vercel to rebuild our website using this newly updated content.
-
+- 
 # Run this script locally
 Download the latest release for your platform, place it into the root folder of the course (next to`content-gdschool` folder), then run:
 ```
