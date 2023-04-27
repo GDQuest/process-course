@@ -1,0 +1,67 @@
+# To make this workflow work, make sure to go to repo Settings > Actions > General > Workflow permissions and set it to "Read and Write permissions"
+name: Create Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+    # Trigger the workflow when a tag with the format 'v*' is pushed, like so:
+    # git tag v1.0.0 && git push --tags
+      - 'v*' 
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: 18 # specify the Node.js version you want to use
+
+    - name: Install dependencies and build binaries
+      run: |
+        npm ci
+        npm install -g pkg
+        npm run build-binaries
+
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }} # ${{ github.event.release.tag_name }} # Causes an error? ${{ github.ref }}
+        release_name: Release # ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Binaries
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./binaries/process-course-linux
+        asset_name: process-course-linux
+        asset_content_type: application/octet-stream
+    - name: Upload Binaries
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./binaries/process-course-macos
+        asset_name: process-course-macos
+        asset_content_type: application/octet-stream
+    - name: Upload Binaries
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./binaries/process-course-win.exe
+        asset_name: process-course-win.exe
+        asset_content_type: application/octet-stream
