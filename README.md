@@ -8,9 +8,7 @@ The main script is located in `src/index.ts`, here's what it does:
 - Saves the processed content into a folder called `/content-gdschool-processed`.
 - Compresses the processed content as a zip archive and saves into the folder called `/content-gdschool-releases`.
 
-This script is supposed to run on the course repos, triggered by a github workflow (`workflows/release-course.yml`).
-
-This workflow will download this script, run it on the content of the course, create a release of the course that contains the zip archive of the processed content. It will then tell Vercel to rebuild our website using this newly updated content.
+This script is supposed to run on the course repos, triggered by a github workflow (`workflows/release-course.yml`). This workflow will download this script, run it on the content of the course, create a release of the course that contains the zip archive of the processed content. It will then tell Vercel to rebuild our website using this newly updated content.
 
 # Run this script locally
 Download the latest release for your platform, place it into the root folder of the course (next to`content-gdschool` folder), then run:
