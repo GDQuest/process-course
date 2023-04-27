@@ -1,9 +1,10 @@
 This script processes the course content into the format compatible with the new GDSchool platform.
 
-The main script is located in `src/index.ts`, it:
-- Takes the content from a folder called `/content-gdschool` located in the same folder as the script.
+The main script is located in `src/index.ts`, here's what it does:
+- It takes the content from a folder called `/content-gdschool` located in the same folder as the script.
 - Rewrites the image paths from relative ones (like `images/course-thumbnail.png`) to absolute ones (like `/courses/learn-to-code-with-godot/introduction/images/course-thumbnail.png`)
 - Replaces the include shortcodes (like `{{ include FileName.gd anchor_name }}`) with codeblocks taken from files located in Godot projects.
+- Does any other course preprocessing we need.
 - Saves the processed content into a folder called `/content-gdschool-processed`.
 - Compresses the processed content as a zip archive and saves into the folder called `/content-gdschool-releases`.
 
