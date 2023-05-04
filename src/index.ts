@@ -6,10 +6,12 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() + '/node-essentials' // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
+let config = readText(`${WORKING_DIR}/course.cfg`)
+config = config ? parseConfig(config) : {}
 
 async function main() {
   let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
@@ -40,11 +42,16 @@ async function main() {
       if (['_index.md', '.DS_Store'].includes(lessonFileName)) continue // ignore section index and .DS_Store files
       console.log(`Processing lesson: ${lessonFileName}`)
       let lessonText = readText(lessonFilePath)
+      const { data: lessonFrontmatter } = matter(lessonText)
+      
 
       // Process the content of the lesson - rewrite image paths, replace shortcodes, etc.
       const imagePathPrefix = `/courses/${courseFrontmatter.slug}/${sectionFrontmatter.slug}`
       lessonText = rewriteImagePaths(lessonText, imagePathPrefix)
       lessonText = processCodeblocks(lessonText, lessonFileName, codeFiles)
+
+      // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
+      // lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`)
 
       // Saving the processed lesson, in place.
       saveText(lessonFilePath, lessonText)
@@ -54,6 +61,26 @@ async function main() {
   const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
   ensureDirExists(fileName)
   await zip(OUTPUT_DIR, fileName)
+}
+
+function parseConfig(config) {
+  return config.split('\n').reduce((output, line) => {
+    const match = line.match(/(\w+)\s*=\s*"([^"]+)"/);
+    if (match) {
+      const [_, key, values] = match;
+      output[key] = values.split(',').map(value => value.trim());
+    }
+    return output;
+  }, {});
+}
+
+// 
+function rewriteLinks(lessonText, courseUrl) {
+  const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g;
+  lessonText = lessonText.replace(linkRegex, (match, fileName) => {
+    const modifiedLink = `[${fileName}](${courseUrl}/${fileName}/${fileName})}`
+    return modifiedLink
+  })
 }
 
 // Replace image paths to absolute ones.
@@ -158,7 +185,9 @@ function indexCodeFiles() {
   let godotProjectFolders = []
   searchFiles(WORKING_DIR, (currentPath, fileName) => {
     if (fileName === 'project.godot') {
-      // console.log('Found Godot project:', currentPath)
+      let folderName = currentPath.split('/').at(-1)
+      if (config.godotProjectDirs && !config.godotProjectDirs.includes(folderName)) return
+      console.log('Found Godot project:', currentPath, folderName)
       godotProjectFolders.push(currentPath)
     }
   })
@@ -168,6 +197,8 @@ function indexCodeFiles() {
     searchFiles(godotProjectFolder, (currentPath, fileName) => {
       const fileExt = path.extname(fileName)
       const filePath = path.join(currentPath, fileName)
+      // const folderName = currentPath.split('/').at(-1)
+      // if (config.ignoreDirs && config.ignoreDirs.includes(folderName)) return
       if (['.gd', '.shader'].includes(fileExt)) {
         // console.log(godotProjectFolder, filePath);
         codeFiles.push({
@@ -188,6 +219,7 @@ function searchFiles(currentPath, callback) {
   for (let fileName of files) {
     const filePath = path.join(currentPath, fileName)
     if (fs.statSync(filePath).isDirectory()) {
+      if (config.ignoreDirs && config.ignoreDirs.includes(fileName)) continue
       searchFiles(filePath, callback)
     } else {
       callback(currentPath, fileName)
