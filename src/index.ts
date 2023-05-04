@@ -6,7 +6,7 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() + '/node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
@@ -50,7 +50,7 @@ async function main() {
       saveText(lessonFilePath, lessonText)
     }
   }
-  console.log('Compressing the processed course');
+  console.log('Compressing the processed course')
   const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
   ensureDirExists(fileName)
   await zip(OUTPUT_DIR, fileName)
@@ -84,11 +84,29 @@ function processCodeblocks(lessonText, lessonFileName, codeFiles) {
   lessonText = lessonText.replace(includeRegex, (match, fileName, anchor) => {
     let updatedContent = `This line replaces the include for ${fileName}, ${anchor}` // just for testing
     // Find the code file by name so I could read its content
-    let codeFilePath = codeFiles.find((codeFile) => codeFile.fileName === fileName)?.filePath
+    let foundFiles = codeFiles.filter((codeFile) => codeFile.fileName === fileName)
     // If the file path is absolute, use it as is
-    if (fileName.includes('/')) codeFilePath = WORKING_DIR + '/' + fileName
-
-    if (!codeFilePath) throw new Error(`Code file not found: ${lessonFileName} ${fileName}`)
+    if (fileName.includes('/')) {
+      let filePath = fileName.replaceAll('"', '')
+      foundFiles = codeFiles.filter((codeFile) => codeFile.filePath.includes(filePath))
+    }
+    if (foundFiles.length === 0) {
+      let errorMessage = `Code file not found.\n`
+      errorMessage += `Lesson: ${lessonFileName}\n`
+      errorMessage += `File Name: ${fileName}.\n`
+      errorMessage += `Found files:\n`
+      throw new Error(errorMessage)
+    }
+    if (foundFiles.length > 1) {
+      let errorMessage = `Multiple code files with the same name found.\n`
+      errorMessage += `Lesson: ${lessonFileName}\n`
+      errorMessage += `File Name: ${fileName}.\n`
+      errorMessage += `Found files:\n`
+      errorMessage += foundFiles.map((file) => file.filePath).join('\n') + '\n'
+      errorMessage += `Use a complete file path to disambiguate.`
+      throw new Error(errorMessage)
+    }
+    let codeFilePath = foundFiles[0]?.filePath
 
     let codeText = readText(codeFilePath)
     updatedContent = codeText

@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev2": "nodemon --watch 'src/**/*.ts' --watch '**/*.md' --exec 'ts-node' src/index.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",

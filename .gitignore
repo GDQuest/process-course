@@ -1,6 +1,8 @@
 # content-gdschool/
 content-gdschool-processed/
 content-gdschool-releases/
+process-course-macos
+content-gdschool-releases/
 
 /dist/
 /binaries/
