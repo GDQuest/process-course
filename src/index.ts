@@ -6,14 +6,15 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
-let config = readText(`${WORKING_DIR}/course.cfg`)
-config = config ? parseConfig(config) : {}
+let config
+
 
 async function main() {
+  loadConfig()
   let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
   const { data: courseFrontmatter } = matter(courseIndexText)
   // Copy all files to the output folder
@@ -236,6 +237,15 @@ function searchFiles(currentPath, callback) {
       callback(currentPath, fileName)
     }
   }
+}
+
+function loadConfig() {
+  try {
+    config = readText(`${WORKING_DIR}/course.cfg`)
+  } catch (e) {
+    console.log('No course.cfg file found in the course directory.')
+  }
+  config = config ? parseConfig(config) : {}
 }
 
 function getDate() {
