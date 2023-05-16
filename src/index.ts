@@ -43,7 +43,6 @@ async function main() {
       console.log(`Processing lesson: ${lessonFileName}`)
       let lessonText = readText(lessonFilePath)
       const { data: lessonFrontmatter } = matter(lessonText)
-      
 
       // Process the content of the lesson - rewrite image paths, replace shortcodes, etc.
       const imagePathPrefix = `/courses/${courseFrontmatter.slug}/${sectionFrontmatter.slug}`
@@ -51,7 +50,7 @@ async function main() {
       lessonText = processCodeblocks(lessonText, lessonFileName, codeFiles)
 
       // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
-      // lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`)
+      lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`)
 
       // Saving the processed lesson, in place.
       saveText(lessonFilePath, lessonText)
@@ -65,22 +64,26 @@ async function main() {
 
 function parseConfig(config) {
   return config.split('\n').reduce((output, line) => {
-    const match = line.match(/(\w+)\s*=\s*"([^"]+)"/);
+    const match = line.match(/(\w+)\s*=\s*"([^"]+)"/)
     if (match) {
-      const [_, key, values] = match;
-      output[key] = values.split(',').map(value => value.trim());
+      const [_, key, values] = match
+      output[key] = values.split(',').map((value) => value.trim())
     }
-    return output;
-  }, {});
+    return output
+  }, {})
 }
 
-// 
+//
 function rewriteLinks(lessonText, courseUrl) {
-  const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g;
-  lessonText = lessonText.replace(linkRegex, (match, fileName) => {
+  // TODO - some links have anchor tags linking to subheadings, like {{ link Lesson subheading }}
+  // const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g
+  const linkRegex = /{{\s*link\s+([\w-]+)\s*([\w-]*)\s*}}/g;
+
+  lessonText = lessonText.replace(linkRegex, (match, fileName, headingSlug) => {
     const modifiedLink = `[${fileName}](${courseUrl}/${fileName}/${fileName})}`
     return modifiedLink
   })
+  return lessonText
 }
 
 // Replace image paths to absolute ones.
@@ -138,7 +141,15 @@ function processCodeblocks(lessonText, lessonFileName, codeFiles) {
     let codeText = readText(codeFilePath)
     updatedContent = codeText
     // If it has anchor tags, extract the text between them
-    if (anchor) updatedContent = extractTextBetweenAnchors(codeText, anchor)
+    try {
+      if (anchor) updatedContent = extractTextBetweenAnchors(codeText, anchor)
+    } catch (error) {
+      let errorMessage = `Error extracting text between anchors.\n`
+      errorMessage += `Lesson: ${lessonFileName}\n`
+      errorMessage += `Anchor: ${anchor}\n`
+      errorMessage += `Code file: ${codeFilePath}\n`
+      throw new Error(errorMessage)
+    }
     updatedContent = removeAnchorTags(updatedContent)
     // updatedContent = trimBlankLines(updatedContent)
     return updatedContent
