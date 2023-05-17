@@ -12,7 +12,6 @@ const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
 let config
 
-
 async function main() {
   loadConfig()
   let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
@@ -78,7 +77,7 @@ function parseConfig(config) {
 function rewriteLinks(lessonText, courseUrl) {
   // TODO - some links have anchor tags linking to subheadings, like {{ link Lesson subheading }}
   // const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g
-  const linkRegex = /{{\s*link\s+([\w-]+)\s*([\w-]*)\s*}}/g;
+  const linkRegex = /{{\s*link\s+([\w-]+)\s*([\w-]*)\s*}}/g
 
   lessonText = lessonText.replace(linkRegex, (match, fileName, headingSlug) => {
     const modifiedLink = `[${fileName}](${courseUrl}/${fileName}/${fileName})}`
@@ -89,10 +88,10 @@ function rewriteLinks(lessonText, courseUrl) {
 
 // Replace image paths to absolute ones.
 function rewriteImagePaths(lessonText, imagePathPrefix) {
-  const markdownImagePathRegex = /!\[\]\((.+?)\)/g
-  lessonText = lessonText.replace(markdownImagePathRegex, (match, imagePath) => {
+  const markdownImagePathRegex = /!\[(.*?)\]\((.+?)\)/g
+  lessonText = lessonText.replace(markdownImagePathRegex, (match, altText, imagePath) => {
     const modifiedImagePath = `${imagePathPrefix}/${imagePath}`
-    return `![](${modifiedImagePath})`
+    return `![${altText}](${modifiedImagePath})`
   })
   const htmlImagePathRegex = /<img src="(.+?)"(.+?)\/>/g
   lessonText = lessonText.replace(htmlImagePathRegex, (match, imagePath, attributes) => {
