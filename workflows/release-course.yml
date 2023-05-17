@@ -23,7 +23,7 @@ jobs:
           sudo apt-get install jq
       - name: Download and extract compiled script
         run: |
-          LATEST_RELEASE=$(curl --silent "https://api.github.com/repos/lumenwrites/process-course/releases/latest" | jq -r .assets[].browser_download_url | grep "process-course-linux")
+          LATEST_RELEASE=$(curl --silent "https://api.github.com/repos/GDQuest/process-course/releases/latest" | jq -r .assets[].browser_download_url | grep "process-course-linux")
           wget $LATEST_RELEASE -O process-course
           chmod +x process-course
   
