@@ -6,7 +6,7 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
@@ -197,7 +197,16 @@ function indexCodeFiles() {
   searchFiles(WORKING_DIR, (currentPath, fileName) => {
     if (fileName === 'project.godot') {
       let folderName = currentPath.split('/').at(-1)
-      if (config.godotProjectDirs && !config.godotProjectDirs.includes(folderName)) return
+      console.log(
+        'Godot project folder',
+        folderName,
+        config.godotProjectDirs,
+        config.godotProjectDirs.includes(folderName)
+      )
+      if (config.godotProjectDirs) {
+        const shouldBeIncluded = config.godotProjectDirs.find((d) => d.includes(folderName))
+        if (!shouldBeIncluded) return
+      }
       console.log('Found Godot project:', currentPath, folderName)
       godotProjectFolders.push(currentPath)
     }
@@ -211,6 +220,8 @@ function indexCodeFiles() {
       // const folderName = currentPath.split('/').at(-1)
       // if (config.ignoreDirs && config.ignoreDirs.includes(folderName)) return
       if (['.gd', '.shader'].includes(fileExt)) {
+        console.log('YES')
+        if (['.shader'].includes(fileExt)) console.log('Found shader', fileName)
         // console.log(godotProjectFolder, filePath);
         codeFiles.push({
           fileName,
