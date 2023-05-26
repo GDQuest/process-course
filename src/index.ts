@@ -6,7 +6,7 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
