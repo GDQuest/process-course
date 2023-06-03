@@ -1,5 +1,14 @@
 import fs from 'fs-extra'
 import path from 'path'
+import slugifyLib from 'slugify'
+
+export function slugify(str) {
+  return slugifyLib(str, {
+    replacement: '-',
+    lower: true,
+    strict: true,
+  })
+}
 
 export async function loopOverFolders(parentFolderPath, callback) {
   const folderNames = fs.readdirSync(parentFolderPath)

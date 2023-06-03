@@ -3,10 +3,10 @@ dotenv.config()
 import fs from 'fs-extra'
 import path from 'path'
 import matter from 'gray-matter'
-import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson } from './utils'
+import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
+const WORKING_DIR = process.cwd() + '/godot-node-essentials' // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
 const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
 const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
 const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
@@ -21,7 +21,7 @@ async function main() {
   copyFiles(CONTENT_DIR, OUTPUT_DIR)
   // Find all code files in Godot project folders, so that I can later use them to replace include shortcodes inside codeblocks
   const codeFiles = indexCodeFiles()
-
+  const lessonFiles = indexLessonFiles() // needed to create links with shortcodes like {{ link lesson-slug subheading }}
   // Process the content of the landing page
   courseIndexText = rewriteImagePaths(courseIndexText, `/courses/${courseFrontmatter.slug}`)
   saveText(`${OUTPUT_DIR}/_index.md`, courseIndexText)
@@ -50,7 +50,7 @@ async function main() {
       lessonText = processCodeblocks(lessonText, lessonFileName, codeFiles)
 
       // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
-      lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`)
+      lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`, lessonFiles)
 
       // Saving the processed lesson, in place.
       saveText(lessonFilePath, lessonText)
@@ -74,13 +74,19 @@ function parseConfig(config) {
 }
 
 //
-function rewriteLinks(lessonText, courseUrl) {
+function rewriteLinks(lessonText, courseUrl, lessonFiles) {
   // TODO - some links have anchor tags linking to subheadings, like {{ link Lesson subheading }}
   // const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g
   const linkRegex = /{{\s*link\s+([\w-]+)\s*([\w-]*)\s*}}/g
 
+  // In the future, we should have shortcodes like {{ link lesson-slug subheading }}
+  // Then, we'd replace such shortcodes with links like this: [Lesson Title](/course/section-slug/lesson-slug#subheading)
+  // But, the way Node Essentails course is written, the shortcodes are like this: {{ link LessonFileName subheading }}
   lessonText = lessonText.replace(linkRegex, (match, fileName, headingSlug) => {
-    const modifiedLink = `[${fileName}](${courseUrl}/${fileName}/${fileName})}`
+    const lesson = lessonFiles.find((lesson) => lesson.fileName === fileName)
+    let fullPath = `${courseUrl}/${lesson.sectionSlug}/${lesson.slug}`
+    if (headingSlug) fullPath += `#${headingSlug}`
+    const modifiedLink = `[${fileName}](${fullPath})`
     return modifiedLink
   })
   return lessonText
@@ -220,7 +226,6 @@ function indexCodeFiles() {
       // const folderName = currentPath.split('/').at(-1)
       // if (config.ignoreDirs && config.ignoreDirs.includes(folderName)) return
       if (['.gd', '.shader'].includes(fileExt)) {
-        console.log('YES')
         if (['.shader'].includes(fileExt)) console.log('Found shader', fileName)
         // console.log(godotProjectFolder, filePath);
         codeFiles.push({
@@ -234,6 +239,34 @@ function indexCodeFiles() {
     })
   }
   return codeFiles
+}
+
+// To create links with shortcodes like {{ link lesson-slug subheading }}
+function indexLessonFiles() {
+  let allLessons = []
+  const sectionFolderNames = fs.readdirSync(CONTENT_DIR)
+  for (let sectionFolderName of sectionFolderNames) {
+    if (['images', '.DS_Store', '_index.md'].includes(sectionFolderName)) continue
+    const sectionFolderPath = `${CONTENT_DIR}/${sectionFolderName}`
+    const sectionIndex = readText(`${sectionFolderPath}/_index.md`)
+    const { data: sectionFrontmatter } = matter(sectionIndex)
+    const lessonFileNames = fs.readdirSync(sectionFolderPath)
+    for (let lessonFileName of lessonFileNames) {
+      const lessonFilePath = `${sectionFolderPath}/${lessonFileName}`
+      if (fs.lstatSync(lessonFilePath).isDirectory()) continue
+      if (['.DS_Store'].includes(lessonFileName)) continue
+      let lessonText = readText(lessonFilePath)
+      const { data: frontmatter, content } = matter(lessonText)
+      let lesson = {
+        slug: slugify(frontmatter.title), // frontmatter.slug,
+        sectionSlug: sectionFrontmatter.slug,
+        fileName: lessonFileName.replace('.md', ''),
+      }
+      allLessons.push(lesson)
+    }
+  }
+  console.log('Indexed lessons', allLessons);
+  return allLessons
 }
 
 function searchFiles(currentPath, callback) {
