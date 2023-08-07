@@ -6,16 +6,17 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() // + '/godot-node-essentials' // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
-const CONTENT_DIR = `${WORKING_DIR}/content-gdschool`
-const OUTPUT_DIR = `${WORKING_DIR}/content-gdschool-processed`
-const RELEASES_DIR = `${WORKING_DIR}/content-gdschool-releases`
+const WORKING_DIR = process.cwd() // + '/learn-to-code-from-zero-with-godot-4' // + '/godot-node-essentials' // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
+const CONTENT_DIR = `${WORKING_DIR}/content`
+const OUTPUT_DIR = `${WORKING_DIR}/content-processed`
+const RELEASES_DIR = `${WORKING_DIR}/content-releases`
 let config
 
 async function main() {
   loadConfig()
   let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
   const { data: courseFrontmatter } = matter(courseIndexText)
+  console.log('Course frontmatter', courseFrontmatter)
   // Copy all files to the output folder
   fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
   copyFiles(CONTENT_DIR, OUTPUT_DIR)
@@ -56,10 +57,10 @@ async function main() {
       saveText(lessonFilePath, lessonText)
     }
   }
-  console.log('Compressing the processed course')
-  const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
-  ensureDirExists(fileName)
-  await zip(OUTPUT_DIR, fileName)
+  // console.log('Compressing the processed course')
+  // const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
+  // ensureDirExists(fileName)
+  // await zip(OUTPUT_DIR, fileName)
 }
 
 function parseConfig(config) {
@@ -252,11 +253,13 @@ function indexLessonFiles() {
     const { data: sectionFrontmatter } = matter(sectionIndex)
     const lessonFileNames = fs.readdirSync(sectionFolderPath)
     for (let lessonFileName of lessonFileNames) {
+      // console.log('[indexLessonFiles] ', lessonFileName)
       const lessonFilePath = `${sectionFolderPath}/${lessonFileName}`
       if (fs.lstatSync(lessonFilePath).isDirectory()) continue
       if (['.DS_Store'].includes(lessonFileName)) continue
       let lessonText = readText(lessonFilePath)
       const { data: frontmatter, content } = matter(lessonText)
+      // console.log('[indexLessonFiles] frontmatter ', frontmatter)
       let lesson = {
         slug: slugify(frontmatter.title), // frontmatter.slug,
         sectionSlug: sectionFrontmatter.slug,
