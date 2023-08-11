@@ -6,14 +6,10 @@ import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify } from './utils'
 import { zip } from 'zip-a-folder'
 
-const WORKING_DIR = process.cwd() // + '/learn-to-code-from-zero-with-godot-4' // + '/godot-node-essentials' // + '/course-content' // '/learn-to-code-with-godot' // + '/course-content' // + '/godot-node-essentials' // + `/learn-to-code-from-zero-test`
-const CONTENT_DIR = `${WORKING_DIR}/content`
-const OUTPUT_DIR = `${WORKING_DIR}/content-processed`
-const RELEASES_DIR = `${WORKING_DIR}/content-releases`
 let config
 
-async function main() {
-  loadConfig()
+export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string) {
+  loadConfig(WORKING_DIR)
   let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
   const { data: courseFrontmatter } = matter(courseIndexText)
   console.log('Course frontmatter', courseFrontmatter)
@@ -21,8 +17,8 @@ async function main() {
   fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
   copyFiles(CONTENT_DIR, OUTPUT_DIR)
   // Find all code files in Godot project folders, so that I can later use them to replace include shortcodes inside codeblocks
-  const codeFiles = indexCodeFiles()
-  const lessonFiles = indexLessonFiles() // needed to create links with shortcodes like {{ link lesson-slug subheading }}
+  const codeFiles = indexCodeFiles(WORKING_DIR)
+  const lessonFiles = indexLessonFiles(CONTENT_DIR) // needed to create links with shortcodes like {{ link lesson-slug subheading }}
   // Process the content of the landing page
   courseIndexText = rewriteImagePaths(courseIndexText, `/courses/${courseFrontmatter.slug}`)
   saveText(`${OUTPUT_DIR}/_index.md`, courseIndexText)
@@ -63,7 +59,7 @@ async function main() {
   // await zip(OUTPUT_DIR, fileName)
 }
 
-function parseConfig(config) {
+export function parseConfig(config) {
   return config.split('\n').reduce((output, line) => {
     const match = line.match(/(\w+)\s*=\s*"([^"]+)"/)
     if (match) {
@@ -75,7 +71,7 @@ function parseConfig(config) {
 }
 
 //
-function rewriteLinks(lessonText, courseUrl, lessonFiles) {
+export function rewriteLinks(lessonText, courseUrl, lessonFiles) {
   // TODO - some links have anchor tags linking to subheadings, like {{ link Lesson subheading }}
   // const linkRegex = /{{\s*link\s+([^\s{}]+)\s*}}/g
   const linkRegex = /{{\s*link\s+([\w-]+)\s*([\w-]*)\s*}}/g
@@ -94,7 +90,7 @@ function rewriteLinks(lessonText, courseUrl, lessonFiles) {
 }
 
 // Replace image paths to absolute ones.
-function rewriteImagePaths(lessonText, imagePathPrefix) {
+export function rewriteImagePaths(lessonText, imagePathPrefix) {
   const markdownImagePathRegex = /!\[(.*?)\]\((.+?)\)/g
   lessonText = lessonText.replace(markdownImagePathRegex, (match, altText, imagePath) => {
     const modifiedImagePath = `${imagePathPrefix}/${imagePath}`
@@ -113,7 +109,7 @@ function rewriteImagePaths(lessonText, imagePathPrefix) {
   return lessonText
 }
 
-function processCodeblocks(lessonText, lessonFileName, codeFiles) {
+export function processCodeblocks(lessonText, lessonFileName, codeFiles) {
   // Add filenames to codeblocks, like ```gdscript:/path/to/file/FileName.gd
   lessonText = addFilenamesToCodeblocks(lessonText, codeFiles)
   // Replace includes with code. Include looks like this: {{ include FileName.gd anchor_name }}
@@ -164,7 +160,7 @@ function processCodeblocks(lessonText, lessonFileName, codeFiles) {
   return lessonText
 }
 
-function addFilenamesToCodeblocks(lessonText, codeFiles) {
+export function addFilenamesToCodeblocks(lessonText, codeFiles) {
   const regex = /(```gdscript)(\s*\n)(\{\{\s*include\s+([^}\s]+))/g
   lessonText = lessonText.replace(regex, (match, p1, p2, p3, fileName) => {
     let relativeFilePath = codeFiles.find((codeFile) => codeFile.fileName === fileName)?.relativeFilePath
@@ -177,7 +173,7 @@ function addFilenamesToCodeblocks(lessonText, codeFiles) {
   return lessonText
 }
 
-function extractTextBetweenAnchors(content, anchorName) {
+export function extractTextBetweenAnchors(content, anchorName) {
   const anchorPattern = new RegExp(
     `(?:#|\\/\\/)\\s*ANCHOR:\\s*\\b${anchorName}\\b\\s*\\r?\\n(.*?)\\s*(?:#|\\/\\/)\\s*END:\\s*\\b${anchorName}\\b`,
     'gms'
@@ -187,18 +183,18 @@ function extractTextBetweenAnchors(content, anchorName) {
   return match[1]
 }
 
-function removeAnchorTags(content) {
+export function removeAnchorTags(content) {
   // const anchorPattern = /#\s*(ANCHOR:|END:).*\n?\s*/gm
   const anchorPattern = /^.*#(ANCHOR|END).*\r?\n?/gm
   return content.replace(anchorPattern, '').trimEnd()
 }
 
-function trimBlankLines(str) {
+export function trimBlankLines(str) {
   // Use regular expression to replace blank lines at the beginning and end of the string
   return str.replace(/^\s*[\r\n]/gm, '').replace(/\s*[\r\n]$/gm, '')
 }
 
-function indexCodeFiles() {
+export function indexCodeFiles(WORKING_DIR: string) {
   // Loop over all folders in this project, find ones that have a project.godot file in them
   let godotProjectFolders = []
   searchFiles(WORKING_DIR, (currentPath, fileName) => {
@@ -243,7 +239,7 @@ function indexCodeFiles() {
 }
 
 // To create links with shortcodes like {{ link lesson-slug subheading }}
-function indexLessonFiles() {
+export function indexLessonFiles(CONTENT_DIR: string) {
   let allLessons = []
   const sectionFolderNames = fs.readdirSync(CONTENT_DIR)
   for (let sectionFolderName of sectionFolderNames) {
@@ -272,7 +268,7 @@ function indexLessonFiles() {
   return allLessons
 }
 
-function searchFiles(currentPath, callback) {
+export function searchFiles(currentPath, callback) {
   const files = fs.readdirSync(currentPath)
   for (let fileName of files) {
     const filePath = path.join(currentPath, fileName)
@@ -285,7 +281,7 @@ function searchFiles(currentPath, callback) {
   }
 }
 
-function loadConfig() {
+export function loadConfig(WORKING_DIR: string) {
   try {
     config = readText(`${WORKING_DIR}/course.cfg`)
   } catch (e) {
@@ -294,7 +290,7 @@ function loadConfig() {
   config = config ? parseConfig(config) : {}
 }
 
-function getDate() {
+export function getDate() {
   const today = new Date()
   const year = today.getFullYear()
   const month = (today.getMonth() + 1).toString().padStart(2, '0')
@@ -302,5 +298,3 @@ function getDate() {
   const formattedDate = `${year}-${month}-${day}`
   return formattedDate
 }
-
-main()

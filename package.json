@@ -2,22 +2,28 @@
   "name": "typescript-starter",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "bin": {
+    "process-course": "./dist/cli.js"
+  },
   "scripts": {
     "dev2": "nodemon --watch 'src/**/*.ts' --watch '**/*.md' --exec 'ts-node' src/index.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
-    "build-binaries": "npm run build && pkg -t node18-macos,node18-linux,node18-win -o ./binaries/process-course dist/index.js"
+    "build-binaries": "npm run build && pkg -t node18-macos,node18-linux,node18-win -o ./binaries/process-course dist/cli.js",
+    "prepublish": "npm run build"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/fs-extra": "^11.0.1",
     "@types/node": "^18.16.1",
+    "pkg": "^5.8.1",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.0.4"
+    "typescript": "^5.1.6"
   },
   "dependencies": {
     "dotenv": "^16.0.3",
