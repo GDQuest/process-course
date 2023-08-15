@@ -3,21 +3,65 @@ dotenv.config()
 import fs from 'fs-extra'
 import {extname, join} from 'path'
 import matter from 'gray-matter'
-import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify } from './utils'
+import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify, readArgs } from './utils'
 import watchFiles from 'node-watch'
 import { zip } from 'zip-a-folder'
 
 let config
 
-export async function watch(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string){
+export function runFromCli(){
+  const WORKING_DIR = process.cwd()
+  const CONTENT_DIR = join(WORKING_DIR, `content`);
+  const OUTPUT_DIR = join(WORKING_DIR, `content-processed`);
+  const RELEASES_DIR = join(WORKING_DIR, `content-releases`);
+
+  const args = readArgs({'w': 'watch', 'h': 'help'});
+  if(args.help){
+    console.log(`
+    Preprocessor for GDQuest Courses
   
+    Processes the course content into the format compatible with the new GDSchool platform.
+  
+    USAGE:
+  
+    ${args._.path.split("/").pop()} [options] .
+  
+    options:
+    -h, --help: this text
+    -w, --watch: run in watch mode
+  `)
+    process.exit(0)
+  }
+  if(args.watch){
+    watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  }
+  else{
+    processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  }
+}
+
+export async function watch(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string){
+  const watchList = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  const files = [...watchList.keys()]
+  console.log("awaiting changes...")
+  watchFiles(files, (evt, filename)=>{
+    if(evt === 'update'){
+      const fn = watchList.get(filename)
+      if(fn){
+        const stats = fn()
+        console.log('updated', stats.output)
+      }
+    }
+  });
 }
 
 export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string) {
   loadConfig(WORKING_DIR)
+  const watchList = new Map<string, ()=>ProcessedFile>()
+  fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
   const course = processCourse(CONTENT_DIR, WORKING_DIR, OUTPUT_DIR)
+  watchList.set(course.input, () => processCourse(CONTENT_DIR, WORKING_DIR, OUTPUT_DIR))
   // Copy all files to the output folder
-  //fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
   //copyFiles(CONTENT_DIR, OUTPUT_DIR)
 
   // Loop over sections
@@ -25,10 +69,12 @@ export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUT
     const section = processSection(CONTENT_DIR, OUTPUT_DIR, sectionDirName)
     if(!section){continue}
     console.log(`Processing section: ${sectionDirName}`)
+    watchList.set(join(section.input,'_index.md'), () => processSection(CONTENT_DIR, OUTPUT_DIR, sectionDirName))
     // Loop over lessons
     for (const lessonFileName of fs.readdirSync(section.input)) {
       const lesson = processLesson(lessonFileName, course, section)
       if(!lesson){continue}
+      watchList.set(lesson.input, () => processLesson(lessonFileName, course, section))
       console.log(`Processing lesson: ${lessonFileName}`)
     }
   }
@@ -36,7 +82,10 @@ export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUT
   // const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
   // ensureDirExists(fileName)
   // await zip(OUTPUT_DIR, fileName)
+  return watchList
 }
+
+type ProcessedFile = ProcessedCourse | ProcessedLesson | ProcessedSection
 
 type ProcessedCourse = ReturnType<typeof processCourse>
 export function processCourse(CONTENT_DIR: string, WORKING_DIR: string, OUTPUT_DIR: string){
