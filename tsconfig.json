@@ -3,6 +3,8 @@
     "target": "es2017",
     "module": "commonjs",
     "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
     "strict": false,
     "esModuleInterop": true,
     "skipLibCheck": true,

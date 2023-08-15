@@ -1,10 +1,11 @@
 {
-  "name": "process-course",
-  "version": "1.0.0",
-  "description": "",
+  "name": "@gdquest/process-course",
+  "version": "0.0.5",
+  "description": "This script processes the course content into the format compatible with the new GDSchool platform. It is not intended to be used outside of the GDQuest team.",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
-    "process-course": "./dist/cli.js"
+    "process-course": "dist/cli.js"
   },
   "scripts": {
     "dev2": "nodemon --watch 'src/**/*.ts' --watch '**/*.md' --exec 'ts-node' src/index.ts",
@@ -15,8 +16,17 @@
     "prepublish": "npm run build"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "GDQuest <info@gdquest.org>",
+  "maintainers": [
+    "LumenWrites <lumenwrites@gmail.com> (https://lumenwrites.dev/)"
+  ],
+  "repository": {
+    "url": "git+https://github.com/GDQuest/process-course.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GDQuest/process-course/issues"
+  },
+  "license": "MIT",
   "devDependencies": {
     "@types/fs-extra": "^11.0.1",
     "@types/node": "^18.16.1",
