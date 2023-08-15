@@ -1,62 +1,93 @@
 import * as dotenv from 'dotenv'
 dotenv.config()
 import fs from 'fs-extra'
-import path from 'path'
+import {extname, join} from 'path'
 import matter from 'gray-matter'
 import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify } from './utils'
+import watchFiles from 'node-watch'
 import { zip } from 'zip-a-folder'
 
 let config
 
+export async function watch(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string){
+  
+}
+
 export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string) {
   loadConfig(WORKING_DIR)
-  let courseIndexText = readText(`${CONTENT_DIR}/_index.md`)
-  const { data: courseFrontmatter } = matter(courseIndexText)
-  console.log('Course frontmatter', courseFrontmatter)
+  const course = processCourse(CONTENT_DIR, WORKING_DIR, OUTPUT_DIR)
   // Copy all files to the output folder
-  fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
-  copyFiles(CONTENT_DIR, OUTPUT_DIR)
-  // Find all code files in Godot project folders, so that I can later use them to replace include shortcodes inside codeblocks
-  const codeFiles = indexCodeFiles(WORKING_DIR)
-  const lessonFiles = indexLessonFiles(CONTENT_DIR) // needed to create links with shortcodes like {{ link lesson-slug subheading }}
-  // Process the content of the landing page
-  courseIndexText = rewriteImagePaths(courseIndexText, `/courses/${courseFrontmatter.slug}`)
-  saveText(`${OUTPUT_DIR}/_index.md`, courseIndexText)
+  //fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
+  //copyFiles(CONTENT_DIR, OUTPUT_DIR)
 
   // Loop over sections
-  for (const sectionDirName of fs.readdirSync(OUTPUT_DIR)) {
-    const sectionDirPath = `${OUTPUT_DIR}/${sectionDirName}`
-    if (!fs.lstatSync(sectionDirPath).isDirectory()) continue // ignore files
-    if (sectionDirName === 'images') continue // ignore the folder containing images for the landing page
+  for (const sectionDirName of fs.readdirSync(CONTENT_DIR)) {
+    const section = processSection(CONTENT_DIR, OUTPUT_DIR, sectionDirName)
+    if(!section){continue}
     console.log(`Processing section: ${sectionDirName}`)
-    let sectionIndexText = readText(`${sectionDirPath}/_index.md`)
-    const { data: sectionFrontmatter } = matter(sectionIndexText)
-
     // Loop over lessons
-    for (const lessonFileName of fs.readdirSync(sectionDirPath)) {
-      const lessonFilePath = `${sectionDirPath}/${lessonFileName}`
-      if (fs.lstatSync(lessonFilePath).isDirectory()) continue // ignore directories containing images, files, etc.
-      if (['_index.md', '.DS_Store'].includes(lessonFileName)) continue // ignore section index and .DS_Store files
+    for (const lessonFileName of fs.readdirSync(section.input)) {
+      const lesson = processLesson(lessonFileName, course, section)
+      if(!lesson){continue}
       console.log(`Processing lesson: ${lessonFileName}`)
-      let lessonText = readText(lessonFilePath)
-      const { data: lessonFrontmatter } = matter(lessonText)
-
-      // Process the content of the lesson - rewrite image paths, replace shortcodes, etc.
-      const imagePathPrefix = `/courses/${courseFrontmatter.slug}/${sectionFrontmatter.slug}`
-      lessonText = rewriteImagePaths(lessonText, imagePathPrefix)
-      lessonText = processCodeblocks(lessonText, lessonFileName, codeFiles)
-
-      // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
-      lessonText = rewriteLinks(lessonText, `/course/${courseFrontmatter.slug}`, lessonFiles)
-
-      // Saving the processed lesson, in place.
-      saveText(lessonFilePath, lessonText)
     }
   }
   // console.log('Compressing the processed course')
   // const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
   // ensureDirExists(fileName)
   // await zip(OUTPUT_DIR, fileName)
+}
+
+type ProcessedCourse = ReturnType<typeof processCourse>
+export function processCourse(CONTENT_DIR: string, WORKING_DIR: string, OUTPUT_DIR: string){
+  const input = `${CONTENT_DIR}/_index.md`
+  const output = `${OUTPUT_DIR}/_index.md`
+  let text = readText(input)
+  const { data: frontmatter } = matter(text)
+  console.log('Course frontmatter', frontmatter)
+  // Copy all files to the output folder
+  // Find all code files in Godot project folders, so that I can later use them to replace include shortcodes inside codeblocks
+  const codeFiles = indexCodeFiles(WORKING_DIR)
+  const lessonFiles = indexLessonFiles(CONTENT_DIR) // needed to create links with shortcodes like {{ link lesson-slug subheading }}
+  // Process the content of the landing page
+  text = rewriteImagePaths(text, `/courses/${frontmatter.slug}`)
+  saveText(output, text)
+  return {frontmatter, codeFiles, lessonFiles, text, input, output}
+}
+
+type ProcessedSection = ReturnType<typeof processSection>
+export function processSection(CONTENT_DIR, OUTPUT_DIR, name){
+  const input = join(CONTENT_DIR, name)
+    
+  if (!fs.lstatSync(input).isDirectory()) return // ignore files
+  if (name === 'images') return // ignore the folder containing images for the landing page
+  const output = join(OUTPUT_DIR, name)
+  console.log(`Processing section: ${name}`)
+  let text = readText(join(input,`_index.md`))
+  const { data: frontmatter } = matter(text)
+  saveText(join(output,`_index.md`), text)
+  return {input, output, name, frontmatter, text}
+}
+
+type ProcessedLesson = ReturnType<typeof processLesson>
+export function processLesson(lessonFileName: string, course: ProcessedCourse, section: ProcessedSection){
+  const input = join(section.input, lessonFileName)
+  const output = join(section.output, lessonFileName)
+  if (fs.lstatSync(input).isDirectory()) return // ignore directories containing images, files, etc.
+  if (['_index.md', '.DS_Store'].includes(lessonFileName)) return // ignore section index and .DS_Store files
+  let text = readText(input)
+  const { data: frontmatter } = matter(text)
+
+  // Process the content of the lesson - rewrite image paths, replace shortcodes, etc.
+  const imagePathPrefix = `/courses/${course.frontmatter.slug}/${section.frontmatter.slug}`
+  text = rewriteImagePaths(text, imagePathPrefix)
+  text = processCodeblocks(text, lessonFileName, course.codeFiles)
+
+  // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
+  text = rewriteLinks(text, `/course/${course.frontmatter.slug}`, course.lessonFiles)
+  // Saving the processed lesson
+  saveText(output, text)
+  return {input, output, text, frontmatter}
 }
 
 export function parseConfig(config) {
@@ -214,12 +245,19 @@ export function indexCodeFiles(WORKING_DIR: string) {
       godotProjectFolders.push(currentPath)
     }
   })
+  type CodeFile = {
+    fileName: string,
+    filePath: string,
+    godotProjectFolder: string,
+    /* Path relative to godot project folder, used to add the path to the script at the top of the code block */
+    relativeFilePath: string
+  }
   // Loop over all files in Godot project folders, find ones that have a .gd or .shader extension
-  let codeFiles = []
+  let codeFiles:CodeFile[] = []
   for (let godotProjectFolder of godotProjectFolders) {
     searchFiles(godotProjectFolder, (currentPath, fileName) => {
-      const fileExt = path.extname(fileName)
-      const filePath = path.join(currentPath, fileName)
+      const fileExt = extname(fileName)
+      const filePath = join(currentPath, fileName)
       // const folderName = currentPath.split('/').at(-1)
       // if (config.ignoreDirs && config.ignoreDirs.includes(folderName)) return
       if (['.gd', '.shader'].includes(fileExt)) {
@@ -240,7 +278,12 @@ export function indexCodeFiles(WORKING_DIR: string) {
 
 // To create links with shortcodes like {{ link lesson-slug subheading }}
 export function indexLessonFiles(CONTENT_DIR: string) {
-  let allLessons = []
+  type LessonFile = {
+    slug:string
+    sectionSlug:string
+    fileName:string
+  }
+  let allLessons: LessonFile[] = []
   const sectionFolderNames = fs.readdirSync(CONTENT_DIR)
   for (let sectionFolderName of sectionFolderNames) {
     if (['images', '.DS_Store', '_index.md'].includes(sectionFolderName)) continue
@@ -271,7 +314,7 @@ export function indexLessonFiles(CONTENT_DIR: string) {
 export function searchFiles(currentPath, callback) {
   const files = fs.readdirSync(currentPath)
   for (let fileName of files) {
-    const filePath = path.join(currentPath, fileName)
+    const filePath = join(currentPath, fileName)
     if (fs.statSync(filePath).isDirectory()) {
       if (config.ignoreDirs && config.ignoreDirs.includes(fileName)) continue
       searchFiles(filePath, callback)
