@@ -1,0 +1,26 @@
+gdschool
+content-gdschool/
+godot-node-essentials/
+godot-node-essentials-bak/
+godot-node-essentials-bak2/
+content-gdschool-processed/
+content-gdschool-releases/
+process-course-macos
+content-gdschool-releases/
+
+/binaries/
+/node_modules/
+.env*.local
+.env
+.env*
+
+# typescript
+*.tsbuildinfo
+
+.DS_Store
+/.vscode/
+.vscode/settings.json
+
+workflows
+src
+tsconfig.json
