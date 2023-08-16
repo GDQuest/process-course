@@ -1,6 +1,6 @@
 {
   "name": "@gdquest/process-course",
-  "version": "0.0.51",
+  "version": "0.0.6",
   "description": "This script processes the course content into the format compatible with the new GDSchool platform. It is not intended to be used outside of the GDQuest team.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,7 +10,7 @@
   "scripts": {
     "dev2": "nodemon --watch 'src/**/*.ts' --watch '**/*.md' --exec 'ts-node' src/index.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "start": "node dist/index.js",
+    "start": "npx --yes tsx src/cli.ts",
     "build": "tsc",
     "build-binaries": "npm run build && pkg -t node18-macos,node18-linux,node18-win -o ./binaries/process-course dist/cli.js",
     "prepublish": "npm run build"

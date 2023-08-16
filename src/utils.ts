@@ -1,5 +1,5 @@
 import fs from 'fs-extra'
-import path from 'path'
+import path, { join } from 'path'
 import slugifyLib from 'slugify'
 
 export function slugify(str) {
@@ -97,8 +97,11 @@ export function shuffle(array) {
   return array
 }
 
-/** smallest arg parser */
-export function readArgs (expand?: Record<string, string>) {
+/** smallest arg parser 
+ * suitable for simple flags.
+ * Attempts to generate help for options 
+*/
+export function readArgs (expand?: Record<string, [string, string]>) {
   return process.argv.slice(2).reduce(
     (acc, str) => {
       if (str[0] != "-") {
@@ -107,7 +110,7 @@ export function readArgs (expand?: Record<string, string>) {
         const { dashes, negation, key, val } = str.match(
           /(?<dashes>-+)(?<negation>no-)?(?<key>[^=]*)(?:=(?<val>.*))?/
         )?.groups || { dashes:"-", negation: "", key: str, val: "" };
-        const keyword = dashes.length == 1 && expand && key in expand ? expand[key] : key;
+        const keyword = dashes.length == 1 && expand && key in expand ? expand[key][0] : key;
         const value = negation
           ? false
           : typeof val === 'undefined' || val === ""
@@ -125,14 +128,44 @@ export function readArgs (expand?: Record<string, string>) {
       _: {
         executable: process.argv[0],
         path: process.argv[1],
+        help: expand && Object.entries(expand).map(([abbr, [opt, desc]])=>`-${abbr}, --${opt}\t${desc}`) || []
       },
       rest: [],
     } as Record<string, string|boolean> & {
       _: {
         executable: string,
         path: string,
+        help: string[]
       },
       rest: string[],
     }
   )
+}
+
+export function getDate() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = (today.getMonth() + 1).toString().padStart(2, '0')
+  const day = today.getDate().toString().padStart(2, '0')
+  const formattedDate = `${year}-${month}-${day}`
+  return formattedDate
+}
+
+/**
+ * Returns a git hash. Fails silently
+ * @param root The root where `.git` should be found
+ * @returns a string representing the hash, or an empty string in case of errors
+ */
+export function getGitHash(root: string = process.cwd()){
+  const gitPath = join(root, '.git')
+  const gitHeadPath = join(gitPath,'/HEAD')
+  if(fs.existsSync(gitHeadPath)){
+    const rev = fs.readFileSync(gitHeadPath).toString().trim().split(/.*[: ]/).slice(-1)[0];
+    if (rev.indexOf('/') === -1) {
+      return rev;
+    } else {
+      return fs.readFileSync(join(gitPath, rev)).toString().trim();
+    }
+  }
+  return ""
 }

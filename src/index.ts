@@ -3,45 +3,68 @@ dotenv.config()
 import fs from 'fs-extra'
 import {extname, join} from 'path'
 import matter from 'gray-matter'
-import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify, readArgs } from './utils'
+import { copyFiles, readText, saveText, ensureDirExists, readJson, saveJson, slugify, readArgs, getDate, getGitHash } from './utils'
 import watchFiles from 'node-watch'
 import { zip } from 'zip-a-folder'
 
 let config
 
-export function runFromCli(){
-  const WORKING_DIR = process.cwd()
+export async function runFromCli(){
+
+  const args = readArgs({
+    'w': ['watch', 'run in watch mode'], 
+    'h': ['help', 'this text'], 
+    'b': ['build', 'process the files'], 
+    'z': ['zip', 'build release version and zip results']
+  });
+  
+  const help = () => console.log(`
+  Preprocessor for GDQuest Courses
+
+  Processes the course content into the format compatible with the new GDSchool platform.
+
+  USAGE:
+
+  ${args._.path.split("/").pop()} [options] [path]
+
+  options:
+  ${args._.help.join("\n  ")}
+
+  if path isn't specified, the current directory will be used
+`)
+
+  if(args.help){
+    help()
+    process.exit(0)
+  }
+
+  const WORKING_DIR = args.rest.length > 0 ? args.rest[0] : process.cwd()
   const CONTENT_DIR = join(WORKING_DIR, `content`);
   const OUTPUT_DIR = join(WORKING_DIR, `content-processed`);
   const RELEASES_DIR = join(WORKING_DIR, `content-releases`);
 
-  const args = readArgs({'w': 'watch', 'h': 'help'});
-  if(args.help){
-    console.log(`
-    Preprocessor for GDQuest Courses
-  
-    Processes the course content into the format compatible with the new GDSchool platform.
-  
-    USAGE:
-  
-    ${args._.path.split("/").pop()} [options] .
-  
-    options:
-    -h, --help: this text
-    -w, --watch: run in watch mode
-  `)
-    process.exit(0)
-  }
   if(args.watch){
     watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
   }
   else{
-    processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+    if(args.build){
+      await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+      process.exit(0)
+    }
+    if(args.zip){
+      console.log("Release Build")
+      await buildRelease(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+      process.exit(0)
+    }else{
+      console.warn("no valid option passed")
+      help()
+      process.exit(1)
+    }
   }
 }
 
 export async function watch(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string){
-  const watchList = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  const [watchList] = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
   const files = [...watchList.keys()]
   console.log("awaiting changes...")
   watchFiles(files, (evt, filename)=>{
@@ -78,11 +101,16 @@ export async function processFiles(WORKING_DIR: string, CONTENT_DIR: string, OUT
       console.log(`Processing lesson: ${lessonFileName}`)
     }
   }
-  // console.log('Compressing the processed course')
-  // const fileName = `${RELEASES_DIR}/${courseFrontmatter.slug}-${getDate()}.zip`
-  // ensureDirExists(fileName)
-  // await zip(OUTPUT_DIR, fileName)
-  return watchList
+  return [watchList, course] as const
+}
+
+export async function buildRelease(WORKING_DIR: string, CONTENT_DIR: string, OUTPUT_DIR: string, RELEASES_DIR: string){
+  const [, course] = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  const fileName = join(RELEASES_DIR, `${course.frontmatter.slug}-${getDate()}-${getGitHash(WORKING_DIR)}.zip`)
+  console.log(`Compressing the processed course ${course.frontmatter.slug}`)
+  console.log(`saving to ${fileName}`)
+  ensureDirExists(fileName)
+  await zip(OUTPUT_DIR, fileName)
 }
 
 type ProcessedFile = ProcessedCourse | ProcessedLesson | ProcessedSection
@@ -380,13 +408,4 @@ export function loadConfig(WORKING_DIR: string) {
     console.log('No course.cfg file found in the course directory.')
   }
   config = config ? parseConfig(config) : {}
-}
-
-export function getDate() {
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = (today.getMonth() + 1).toString().padStart(2, '0')
-  const day = today.getDate().toString().padStart(2, '0')
-  const formattedDate = `${year}-${month}-${day}`
-  return formattedDate
 }
