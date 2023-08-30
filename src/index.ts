@@ -72,14 +72,16 @@ export async function runFromCli() {
   });
 
   if (args.watch) {
+    logger.info(`Watching course`, WORKING_DIR)
     watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
   } else {
     if (args.build) {
+      logger.info(`Building course`, WORKING_DIR)
       await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
       process.exit(0);
     }
     if (args.zip) {
-      logger.debug("Release Build");
+      logger.info(`Releasing course`, WORKING_DIR)
       await buildRelease(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
       process.exit(0);
     } else {
@@ -192,7 +194,7 @@ export function processCourse(
   const output = join(OUTPUT_DIR, `_index.md`);
   let text = readText(input);
   const { data: frontmatter } = matter(text);
-  logger.info("Course frontmatter", frontmatter);
+  logger.trace("Course frontmatter", frontmatter);
   // Copy all files to the output folder
   // Find all code files in Godot project folders, so that I can later use them to replace include shortcodes inside codeblocks
   const codeFiles = indexCodeFiles(WORKING_DIR);
@@ -265,6 +267,7 @@ export function parseConfig(config) {
  */
 export function getIndexFileStringContentFromDir(dir: string) {
   // TODO: memoize this so the function can be reused without reloading the entire file, but NOT when using `watch`
+  // or see why it is called twice
   const sectionIndexPath = join(dir, "_index.md");
   const defaultName = basename(dir).replace(/^\d+\./, "");
   const defaultPlaceHolder = `
