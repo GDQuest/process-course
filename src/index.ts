@@ -274,11 +274,12 @@ export function getIndexFileStringContentFromDir(dir: string) {
   // or see why it is called twice
   const sectionIndexPath = join(dir, "_index.md");
   const defaultName = basename(dir).replace(/^\d+\./, "");
-  const defaultPlaceHolder = `
----
+  const defaultPlaceHolder = `---
 title: "PLACEHOLDER TITLE (missing _index.md): ${defaultName.replace(/-/, " ")}"
 slug: "${defaultName}"
 ---
+
+
 `;
   if (!existsSync(sectionIndexPath)) {
     const error = new Error(`could not find _index.md file in ${dir}`);
