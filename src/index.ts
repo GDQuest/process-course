@@ -72,16 +72,16 @@ export async function runFromCli() {
   });
 
   if (args.watch) {
-    logger.info(`Watching course`, WORKING_DIR)
+    logger.info(`Watching course`, WORKING_DIR);
     watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
   } else {
     if (args.build) {
-      logger.info(`Building course`, WORKING_DIR)
+      logger.info(`Building course`, WORKING_DIR);
       await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
       process.exit(0);
     }
     if (args.zip) {
-      logger.info(`Releasing course`, WORKING_DIR)
+      logger.info(`Releasing course`, WORKING_DIR);
       await buildRelease(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
       process.exit(0);
     } else {
@@ -233,11 +233,15 @@ export function processLesson(
   const { data: frontmatter } = matter(text);
 
   // Process the content of the lesson - rewrite image paths, replace shortcodes, etc.
-  const imagePathPrefix = `/courses/${course.frontmatter.slug}/${section.frontmatter.slug}`;
+  const imagePathPrefix = join(
+    `/courses`,
+    course.frontmatter.slug,
+    section.frontmatter.slug
+  );
   text = rewriteImagePaths(text, imagePathPrefix);
   text = processCodeblocks(text, lessonFileName, course.codeFiles);
 
-  // let lessonUrl = `/course/${courseFrontmatter.slug}/${sectionFrontmatter.slug}/${lessonFrontmatter.slug}`
+  // let lessonUrl = join(`course`, courseFrontmatter.slug, sectionFrontmatter.slug, lessonFrontmatter.slug)
   text = rewriteLinks(
     text,
     `/course/${course.frontmatter.slug}`,
@@ -298,7 +302,7 @@ export function rewriteLinks(lessonText, courseUrl, lessonFiles) {
   // But, the way Node Essentails course is written, the shortcodes are like this: {{ link LessonFileName subheading }}
   lessonText = lessonText.replace(linkRegex, (match, fileName, headingSlug) => {
     const lesson = lessonFiles.find((lesson) => lesson.fileName === fileName);
-    let fullPath = `${courseUrl}/${lesson.sectionSlug}/${lesson.slug}`;
+    let fullPath = join(courseUrl, lesson.sectionSlug, lesson.slug);
     if (headingSlug) fullPath += `#${headingSlug}`;
     const modifiedLink = `[${fileName}](${fullPath})`;
     return modifiedLink;
@@ -503,7 +507,7 @@ export function indexLessonFiles(CONTENT_DIR: string) {
     const lessonFileNames = readdirSync(sectionFolderPath);
     for (let lessonFileName of lessonFileNames) {
       // logger.debug('[indexLessonFiles] ', lessonFileName)
-      const lessonFilePath = `${sectionFolderPath}/${lessonFileName}`;
+      const lessonFilePath = join(sectionFolderPath, lessonFileName);
       if (lstatSync(lessonFilePath).isDirectory()) continue;
       if ([".DS_Store"].includes(lessonFileName)) continue;
       let lessonText = readText(lessonFilePath);
@@ -536,7 +540,7 @@ export function searchFiles(currentPath, callback) {
 
 export function loadConfig(WORKING_DIR: string) {
   try {
-    config = readText(`${WORKING_DIR}/course.cfg`);
+    config = readText(join(WORKING_DIR, `course.cfg`));
   } catch (e) {
     logger.debug("No course.cfg file found in the course directory.");
   }
