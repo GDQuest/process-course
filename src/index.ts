@@ -19,15 +19,8 @@ import watchFiles from "node-watch";
 import { zip } from "zip-a-folder";
 import pino from "pino";
 
-const logger = pino({
+let logger = pino({
   name: "processCourse",
-  // TODO: use raw stream if not ran from cli
-  transport: {
-    target: "pino-pretty",
-    options:{
-      colorize: true
-    }
-  },
 });
 
 let config;
@@ -65,6 +58,18 @@ export async function runFromCli() {
   const CONTENT_DIR = join(WORKING_DIR, `content`);
   const OUTPUT_DIR = join(WORKING_DIR, `content-processed`);
   const RELEASES_DIR = join(WORKING_DIR, `content-releases`);
+
+  logger = pino({
+    name: "processCourse",
+    transport: {
+      target: "pino-pretty",
+      options:{
+        colorize: true,
+        ignore: 'pid,hostname',
+        translateTime: 'HH:MM:ss'
+      }
+    },
+  });
 
   if (args.watch) {
     watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
