@@ -1,7 +1,7 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 import { statSync, lstatSync, readdirSync, existsSync, rmSync } from "fs-extra";
-import { extname, join } from "path";
+import { basename, extname, join } from "path";
 import matter from "gray-matter";
 import {
   copyFiles,
@@ -63,11 +63,11 @@ export async function runFromCli() {
     name: "processCourse",
     transport: {
       target: "pino-pretty",
-      options:{
+      options: {
         colorize: true,
-        ignore: 'pid,hostname',
-        translateTime: 'HH:MM:ss'
-      }
+        ignore: "pid,hostname",
+        translateTime: "HH:MM:ss",
+      },
     },
   });
 
@@ -188,8 +188,8 @@ export function processCourse(
   WORKING_DIR: string,
   OUTPUT_DIR: string
 ) {
-  const input = `${CONTENT_DIR}/_index.md`;
-  const output = `${OUTPUT_DIR}/_index.md`;
+  const input = join(CONTENT_DIR, `_index.md`);
+  const output = join(OUTPUT_DIR, `_index.md`);
   let text = readText(input);
   const { data: frontmatter } = matter(text);
   logger.info("Course frontmatter", frontmatter);
@@ -266,15 +266,22 @@ export function parseConfig(config) {
 export function getIndexFileStringContentFromDir(dir: string) {
   // TODO: memoize this so the function can be reused without reloading the entire file, but NOT when using `watch`
   const sectionIndexPath = join(dir, "_index.md");
+  const defaultName = basename(dir).replace(/^\d+\./, "");
+  const defaultPlaceHolder = `
+---
+title: "PLACEHOLDER TITLE (missing _index.md): ${defaultName.replace(/-/, " ")}"
+slug: "${defaultName}"
+---
+`;
   if (!existsSync(sectionIndexPath)) {
     const error = new Error(`could not find _index.md file in ${dir}`);
     if (process.env.NODE_ENV === "production") {
       throw error;
     }
     logger.warn(error.message);
-    return "";
+    return defaultPlaceHolder;
   }
-  return readText(sectionIndexPath);
+  return readText(sectionIndexPath) || defaultPlaceHolder;
 }
 
 //
