@@ -1,6 +1,6 @@
 import * as dotenv from "dotenv";
 dotenv.config();
-import { statSync, lstatSync, readdirSync, existsSync, rmSync } from "fs-extra";
+import { statSync, lstatSync, readdirSync, existsSync, rmSync, moveSync, remove } from "fs-extra";
 import { basename, extname, join } from "path";
 import matter from "gray-matter";
 import {
@@ -18,6 +18,7 @@ import {
 import watchFiles from "node-watch";
 import { zip } from "zip-a-folder";
 import pino from "pino";
+import { PathLike } from "fs";
 
 let logger = pino({
   name: "processCourse",
@@ -27,9 +28,9 @@ let config;
 
 export async function runFromCli() {
   const args = readArgs({
-    w: ["watch", "run in watch mode"],
-    h: ["help", "this text"],
     b: ["build", "process the files"],
+    h: ["help", "this text"],
+    w: ["watch", "run in watch mode"],
     z: ["zip", "build release version and zip results"],
   });
 
@@ -72,23 +73,21 @@ export async function runFromCli() {
   });
 
   if (args.watch) {
-    logger.info(`Watching course`, WORKING_DIR);
-    watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
+    logger.info(`Watching course`, WORKING_DIR)
+    watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+  } else if (args.build) {
+    logger.info(`Building course`, WORKING_DIR)
+    const [, course] = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+    await processGodot(OUTPUT_DIR, course.codeFiles)
+    process.exit(0)
+  } else if (args.zip) {
+    logger.info(`Releasing course`, WORKING_DIR)
+    await buildRelease(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR)
+    process.exit(0)
   } else {
-    if (args.build) {
-      logger.info(`Building course`, WORKING_DIR);
-      await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
-      process.exit(0);
-    }
-    if (args.zip) {
-      logger.info(`Releasing course`, WORKING_DIR);
-      await buildRelease(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR, RELEASES_DIR);
-      process.exit(0);
-    } else {
-      logger.warn("no valid option passed");
-      help();
-      process.exit(1);
-    }
+    logger.warn("no valid option passed")
+    help()
+    process.exit(1)
   }
 }
 
@@ -170,8 +169,9 @@ export async function buildRelease(
     WORKING_DIR,
     CONTENT_DIR,
     OUTPUT_DIR,
-    RELEASES_DIR
-  );
+    RELEASES_DIR,
+  )
+  await processGodot(OUTPUT_DIR, course.codeFiles)
   const fileName = join(
     RELEASES_DIR,
     `${course.frontmatter.slug}-${getDate()}-${getGitHash(WORKING_DIR)}.zip`
@@ -250,6 +250,30 @@ export function processLesson(
   // Saving the processed lesson
   saveText(output, text);
   return { input, output, text, frontmatter };
+}
+
+export async function processGodot(OUTPUT_DIR: string, codeFiles: CodeFile[]) {
+  const godotProjectDirs = [... new Set(codeFiles.map((c: CodeFile) => c.godotProjectFolder))]
+  const outTmpDir = join(OUTPUT_DIR, "tmp")
+  await Promise.all(
+    godotProjectDirs.map(async (godotProjectDir: string) => {
+      const godotCacheDir = join(godotProjectDir, ".godot")
+      const outGodotCacheDir = join(outTmpDir, basename(godotProjectDir), ".godot")
+      const outDir = join(OUTPUT_DIR, "public", basename(godotProjectDir))
+      const zipFile = `${outDir}.zip`
+
+      if (existsSync(godotCacheDir)) {
+        ensureDirExists(outGodotCacheDir)
+        moveSync(godotCacheDir, outGodotCacheDir)
+      }
+      ensureDirExists(outDir)
+      await zip(godotProjectDir, zipFile)
+      if (existsSync(outTmpDir)) {
+        moveSync(outGodotCacheDir, godotCacheDir)
+      }
+    })
+  )
+  rmSync(outTmpDir, { recursive: true, force: true })
 }
 
 export function parseConfig(config) {
@@ -432,6 +456,13 @@ export function trimBlankLines(str) {
   return str.replace(/^\s*[\r\n]/gm, "").replace(/\s*[\r\n]$/gm, "");
 }
 
+type CodeFile = {
+  fileName: string;
+  filePath: string;
+  godotProjectFolder: string;
+  /* Path relative to godot project folder, used to add the path to the script at the top of the code block */
+  relativeFilePath: string;
+};
 export function indexCodeFiles(WORKING_DIR: string) {
   if (!config.godotProjectDirs || !config.godotProjectDirs.length) {
     return [];
@@ -457,13 +488,6 @@ export function indexCodeFiles(WORKING_DIR: string) {
       godotProjectFolders.push(currentPath);
     }
   });
-  type CodeFile = {
-    fileName: string;
-    filePath: string;
-    godotProjectFolder: string;
-    /* Path relative to godot project folder, used to add the path to the script at the top of the code block */
-    relativeFilePath: string;
-  };
   // Loop over all files in Godot project folders, find ones that have a .gd or .shader extension
   let codeFiles: CodeFile[] = [];
   for (let godotProjectFolder of godotProjectFolders) {
