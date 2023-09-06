@@ -1,7 +1,7 @@
 import * as dotenv from "dotenv";
 dotenv.config();
-import { statSync, lstatSync, readdirSync, existsSync, rmSync, moveSync, remove } from "fs-extra";
-import { basename, extname, join } from "path";
+import { statSync, lstatSync, readdirSync, existsSync } from "fs-extra";
+import { basename, extname, join, sep } from "path";
 import matter from "gray-matter";
 import {
   copyFiles,
@@ -14,17 +14,18 @@ import {
   readArgs,
   getDate,
   getGitHash,
+  deleteIfExists,
 } from "./utils";
 import watchFiles from "node-watch";
 import { zip } from "zip-a-folder";
 import pino from "pino";
-import { PathLike } from "fs";
 
+const GD_PLUG_DIR = `.plugged${sep}`
+
+let config
 let logger = pino({
   name: "processCourse",
-});
-
-let config;
+})
 
 export async function runFromCli() {
   const args = readArgs({
@@ -35,20 +36,21 @@ export async function runFromCli() {
   });
 
   const help = () =>
-    logger.debug(`
-  Preprocessor for GDQuest Courses
-
-  Processes the course content into the format compatible with the new GDSchool platform.
-
-  USAGE:
-
-  ${args._.path.split("/").pop()} [options] [path]
-
-  options:
-  ${args._.help.join("\n  ")}
-
-  if path isn't specified, the current directory will be used
-`);
+    console.log([
+      "",
+      "Preprocessor for GDQuest Courses",
+      "",
+      "Processes the course content into the format compatible with the new GDSchool platform.",
+      "",
+      "USAGE:",
+      `${args._.path.split("/").pop()} [options] [path]`,
+      "",
+      "options:",
+      `  ${args._.help.join("\n  ")}`,
+      "",
+      "if path isn't specified, the current directory will be used",
+      "",
+    ].join("\n"))
 
   if (args.help) {
     help();
@@ -124,7 +126,7 @@ export async function processFiles(
 ) {
   loadConfig(WORKING_DIR);
   const watchList = new Map<string, () => ProcessedFile>();
-  rmSync(OUTPUT_DIR, { recursive: true, force: true });
+  deleteIfExists(OUTPUT_DIR)
   const course = processCourse(CONTENT_DIR, WORKING_DIR, OUTPUT_DIR);
   watchList.set(course.input, () =>
     processCourse(CONTENT_DIR, WORKING_DIR, OUTPUT_DIR)
@@ -254,30 +256,18 @@ export function processLesson(
 
 export async function processGodot(OUTPUT_DIR: string, codeFiles: CodeFile[]) {
   const godotProjectDirs = [... new Set(codeFiles.map((c: CodeFile) => c.godotProjectFolder))]
-  const outTmpDir = join(OUTPUT_DIR, "tmp")
   await Promise.all(
     godotProjectDirs.map(async (godotProjectDir: string) => {
-      const godotCacheDir = join(godotProjectDir, ".godot")
-      const outGodotCacheDir = join(outTmpDir, basename(godotProjectDir), ".godot")
       const outDir = join(OUTPUT_DIR, "public", basename(godotProjectDir))
       const zipFile = `${outDir}.zip`
-
-      if (existsSync(godotCacheDir)) {
-        ensureDirExists(outGodotCacheDir)
-        moveSync(godotCacheDir, outGodotCacheDir)
-      }
       ensureDirExists(outDir)
       await zip(godotProjectDir, zipFile)
-      if (existsSync(outTmpDir)) {
-        moveSync(outGodotCacheDir, godotCacheDir)
-      }
     })
   )
-  rmSync(outTmpDir, { recursive: true, force: true })
 }
 
-export function parseConfig(config) {
-  return config.split("\n").reduce((output, line) => {
+export function parseConfig(courseConfigContent: string) {
+  return courseConfigContent.split("\n").reduce((output, line) => {
     const match = line.match(/(\w+)\s*=\s*"([^"]+)"/);
     if (match) {
       const [_, key, values] = match;
@@ -457,60 +447,28 @@ export function trimBlankLines(str) {
 }
 
 type CodeFile = {
-  fileName: string;
-  filePath: string;
-  godotProjectFolder: string;
+  fileName: string
+  filePath: string
+  godotProjectFolder: string
   /* Path relative to godot project folder, used to add the path to the script at the top of the code block */
-  relativeFilePath: string;
+  relativeFilePath: string
 };
 export function indexCodeFiles(WORKING_DIR: string) {
-  if (!config.godotProjectDirs || !config.godotProjectDirs.length) {
-    return [];
-  }
-  // Loop over all folders in this project, find ones that have a project.godot file in them
-  let godotProjectFolders = [];
-  searchFiles(WORKING_DIR, (currentPath, fileName) => {
-    if (fileName === "project.godot") {
-      let folderName = currentPath.split("/").at(-1);
-      logger.debug(
-        "Godot project folder",
-        folderName,
-        config.godotProjectDirs,
-        config.godotProjectDirs.includes(folderName)
-      );
-      if (config.godotProjectDirs) {
-        const shouldBeIncluded = config.godotProjectDirs.find((d) =>
-          d.includes(folderName)
-        );
-        if (!shouldBeIncluded) return;
-      }
-      logger.debug("Found Godot project:", currentPath, folderName);
-      godotProjectFolders.push(currentPath);
-    }
-  });
-  // Loop over all files in Godot project folders, find ones that have a .gd or .shader extension
-  let codeFiles: CodeFile[] = [];
-  for (let godotProjectFolder of godotProjectFolders) {
-    searchFiles(godotProjectFolder, (currentPath, fileName) => {
-      const fileExt = extname(fileName);
-      const filePath = join(currentPath, fileName);
-      // const folderName = currentPath.split('/').at(-1)
-      // if (config.ignoreDirs && config.ignoreDirs.includes(folderName)) return
-      if ([".gd", ".shader"].includes(fileExt)) {
-        if ([".shader"].includes(fileExt))
-          logger.debug("Found shader", fileName);
-        // logger.debug(godotProjectFolder, filePath);
-        codeFiles.push({
-          fileName,
-          filePath,
-          godotProjectFolder,
-          // Path relative to godot project folder, used to add the path to the script at the top of the code block
-          relativeFilePath: filePath.replace(godotProjectFolder, ""),
-        });
-      }
-    });
-  }
-  return codeFiles;
+  return (!config.godotProjectDirs || !config.godotProjectDirs.length) ? [] : config.godotProjectDirs.reduce(
+    (acc: string[], godotProjectDir: string) => {
+      const godotProjectFolder = join(WORKING_DIR, godotProjectDir)
+      return acc.concat(findFiles(
+        godotProjectFolder,
+        (path: string) => !path.includes(GD_PLUG_DIR) && [".gd", ".shader"].includes(extname(path))
+      )).map((filePath: string) => ({
+        fileName: basename(filePath),
+        filePath,
+        godotProjectFolder,
+        relativeFilePath: filePath.replace(godotProjectFolder, "")
+      }))
+    },
+    []
+  )
 }
 
 // To create links with shortcodes like {{ link lesson-slug subheading }}
@@ -550,24 +508,29 @@ export function indexLessonFiles(CONTENT_DIR: string) {
   return allLessons;
 }
 
-export function searchFiles(currentPath, callback) {
-  const files = readdirSync(currentPath);
-  for (let fileName of files) {
-    const filePath = join(currentPath, fileName);
-    if (statSync(filePath).isDirectory()) {
-      if (config.ignoreDirs && config.ignoreDirs.includes(fileName)) continue;
-      searchFiles(filePath, callback);
-    } else {
-      callback(currentPath, fileName);
+export function findFiles(currentPath: string, predicate: (path: string) => boolean): string[] {
+  const go = (path: string, result: string[]) => {
+    const listing = readdirSync(path)
+    for (let name of listing) {
+      const listingPath = join(path, name);
+      if (statSync(listingPath).isDirectory()) {
+        if (config.ignoreDirs && config.ignoreDirs.includes(listingPath)) continue
+        go(listingPath, result)
+      } else if (predicate(listingPath)) {
+        result.push(listingPath)
+      }
     }
+    return result;
   }
+  return go(currentPath, [])
 }
 
 export function loadConfig(WORKING_DIR: string) {
+  let courseConfigContent: string
   try {
-    config = readText(join(WORKING_DIR, `course.cfg`));
+    courseConfigContent = readText(join(WORKING_DIR, "course.cfg"));
   } catch (e) {
     logger.debug("No course.cfg file found in the course directory.");
   }
-  config = config ? parseConfig(config) : {};
+  config = courseConfigContent ? parseConfig(courseConfigContent) : {};
 }
