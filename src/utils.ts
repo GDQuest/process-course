@@ -10,6 +10,28 @@ export function slugify(str: string) {
   })
 }
 
+export function fsFind(currentPath: string, isRecursive: boolean, findPredicate: (path: string) => boolean, ignorePredicate = (path: string) => false): string[] {
+  const go = (path: string, result: string[]) => {
+    const listing = fs.readdirSync(path)
+    for (let name of listing) {
+      const listingPath = join(path, name);
+      if (ignorePredicate(path)) {
+        continue
+      }
+
+      if (findPredicate(listingPath)) {
+        result.push(listingPath)
+      }
+
+      if (fs.statSync(listingPath).isDirectory() && isRecursive) {
+        go(listingPath, result)
+      }
+    }
+    return result;
+  }
+  return go(currentPath, [])
+}
+
 // export async function loopOverFolders(parentFolderPath, callback) {
 //   const folderNames = fs.readdirSync(parentFolderPath)
 //   for (const folderName of folderNames) {
@@ -36,7 +58,7 @@ export function copyFiles(folderIn: string, folderOut: string) {
   // console.log('Files copied')
 }
 
-export function deleteIfExists(folderPath: string) {
+export function deleteForced(folderPath: string) {
   fs.rmSync(folderPath, { recursive: true, force: true })
 }
 
@@ -98,7 +120,7 @@ export function shuffle(array: []) {
  * suitable for simple flags.
  * Attempts to generate help for options 
 */
-export function readArgs (expand?: Record<string, [string, string]>) {
+export function readArgs(expand?: Record<string, [string, string]>) {
   return process.argv.slice(2).reduce(
     (acc, str) => {
       if (str[0] != "-") {
