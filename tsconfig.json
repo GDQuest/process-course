@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2017",
-    "module": "commonjs",
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "nodenext",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,

@@ -77,7 +77,7 @@ export async function runFromCli() {
     watch(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR)
   } else if (args.build) {
     logger.info("Building course", WORKING_DIR)
-    const [, course] = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR )
+    const [, course] = await processFiles(WORKING_DIR, CONTENT_DIR, OUTPUT_DIR)
     await processGodot(OUTPUT_DIR, course.codeFiles)
     process.exit(0)
   } else if (args.zip) {
