@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import p from "path"
-import pino, { Logger } from "pino"
-import { setLogger, processContent } from "./new-index.mjs"
+import pino from "pino"
+import { setLogger, processContent } from "./new-index.mts"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -12,7 +12,7 @@ type Args = Record<string, string | boolean> & {
   rest: string[],
 }
 
-runCLI()
+runCli()
 
 function help(args: Args) {
   console.log([
@@ -32,7 +32,7 @@ function help(args: Args) {
   ].join("\n"))
 }
 
-export function runCLI() {
+export function runCli() {
   setLogger(pino({
     name: "processCourse",
     level: "info",
@@ -90,7 +90,9 @@ export function readArgs(expand?: Record<string, [string, string]>) {
       _: {
         executable: process.argv[0],
         path: process.argv[1],
-        options: expand && Object.entries(expand).map(([abbr, [opt, desc]]) => `-${abbr}, --${opt}\t${desc}`) || []
+        options: expand && Object
+          .entries(expand)
+          .map(([abbr, [opt, desc]]) => `-${abbr}, --${opt}\t${desc}`) || []
       },
       rest: [],
     } as Args

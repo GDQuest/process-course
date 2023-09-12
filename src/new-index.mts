@@ -1,22 +1,25 @@
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"
 import p from "path"
-import matter from "gray-matter"
 import pino, { Logger } from "pino"
-// import { Logger } from "pino"
-import slugify from "slugify"
-import * as utils from "./new-utils.mjs"
+import { serialize } from "next-mdx-remote/serialize"
+import { visit } from "unist-util-visit"
+import * as utils from "./new-utils.mts"
 
+const COURSES_ROOT_PATH = "/courses"
 const MD_EXT = ".md"
+const JSON_EXT = ".json"
 const INDEX_FILE = "_index.md"
 const SECTION_REGEX = /\d+\..+/
-const MARKDOWN_IMAGE_PATH_REGEX = /!\[(.*?)\]\((.+?)\)/g
-const HTML_IMAGE_PATH_REGEX = /<img src="(.+?)"(.+?)\/>/g
-const THUMBNAIL_IMAGE_PATH_REGEX = /^thumbnail:\s*(.*)$/gm
+const MDX_SERIALIZE_OPTIONS = {
+  mdxOptions: {
+    remarkPlugins: [],
+  },
+  parseFrontmatter: true,
+}
+export const PRODUCTION = "production"
 
-let logger: Logger = pino({
-  name: "processCourse",
-})
+export let logger = pino({ name: "processCourse" })
 
 export function processContent(workingDirPath: string) {
   const contentDirPath = p.join(workingDirPath, "content")
@@ -36,34 +39,79 @@ export function processSections(contentDirPath: string, outputDirPath: string) {
   }
 }
 
-export function processSection(contentDirPath: string, outputDirPath: string, dirPath: string) {
+export async function processSection(contentDirPath: string, outputDirPath: string, dirPath: string) {
+  let content = ""
   const inFilePath = p.join(dirPath, INDEX_FILE)
-  const outFilePath = p.join(outputDirPath, inFilePath.replace(contentDirPath, ""))
-  fsExtra.ensureDirSync(p.dirname(outFilePath))
-  if (fs.existsSync(inFilePath)) {
-    if (utils.isFileAOlderThanB(outFilePath, inFilePath)) {
-      let content = fs.readFileSync(inFilePath, "utf8")
-      content = rewriteImagePaths(content, inFilePath)
-      fs.writeFileSync(outFilePath, content)
-    }
-  } else {
-    const error = Error(`Could not find required '${inFilePath}' file.`)
-    logger.error(error.message)
-    if (process.env.NODE_ENV === "production") {
-      throw error
-    }
+  const outFilePath = p
+    .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+    .replace(MD_EXT, JSON_EXT)
 
+  const inFileExists = utils.checkFileExists(inFilePath)
+  if (inFileExists && utils.isFileAOlderThanB(outFilePath, inFilePath)) {
+    content = fs.readFileSync(inFilePath, "utf8")
+  } else if (!inFileExists) {
     const defaultName = p.basename(dirPath).replace(/^\d+\./, "")
-    const defaultContent = [
+    content = [
       "---",
       `title: "PLACEHOLDER TITLE (missing _index.md): ${defaultName.replace(/-/, " ")}"`,
-      `slug: "${defaultName}"`,
+      `slug: ${defaultName}`,
       "---",
       "",
     ].join("\n")
-    fs.writeFileSync(outFilePath, defaultContent)
+  }
+
+  if (content.length > 0) {
+    fsExtra.ensureDirSync(p.dirname(outFilePath))
+    const serialized = await serialize(
+      content,
+      {
+        ...MDX_SERIALIZE_OPTIONS,
+        mdxOptions: {
+          remarkPlugins: [remarkProcessSection(dirPath, inFilePath)],
+        },
+      },
+    )
+    fs.writeFileSync(outFilePath, JSON.stringify(serialized))
   }
 }
+
+function remarkProcessSection(dirPath: string, inFilePath: string) {
+  return () => async (tree, vFile) => {
+    const slug = p.posix.join(await getSlugPathUp(p.resolve(dirPath, "..")), vFile.data.matter.slug)
+    const imagePathPrefix = p.posix.join(COURSES_ROOT_PATH, slug)
+    if (vFile.data.hasOwnProperty("matter") && vFile.data.matter.hasOwnProperty("thumbnail")) {
+      const filePath = p.join(dirPath, vFile.data.matter.thumbnail)
+      utils.checkFileExists(
+        filePath,
+        `Couldn't find required '${filePath}' for '${inFilePath}' at in frontmatter`
+      )
+      vFile.data.matter.thumbnail = p.posix.join(imagePathPrefix, vFile.data.matter.thumbnail)
+    }
+
+    visit(tree, (node) => {
+      let checkFilePath = ""
+      if (node.type === "image") {
+        checkFilePath = p.join(dirPath, node.url)
+        node.url = p.posix.join(imagePathPrefix, node.url)
+      } else if (node.type === "mdxJsxFlowElement" && node.name === "img") {
+        node.attributes
+          .filter((attr) => attr.name === "src")
+          .forEach((attr) => {
+            checkFilePath = p.join(dirPath, attr.value)
+            attr.value = p.posix.join(imagePathPrefix, attr.value)
+          })
+      }
+
+      if (checkFilePath.length > 0) {
+        utils.checkFileExists(
+          checkFilePath,
+          `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line '${node.position.start.line}'`
+        )
+      }
+    })
+  }
+}
+
 
 export function processMarkdownFiles(contentDirPath: string, outputDirPath: string) {
   const filePaths = utils.fsFind(
@@ -79,47 +127,27 @@ export function processMarkdownFiles(contentDirPath: string, outputDirPath: stri
 export function processMarkdownFile(outputDirPath: string, filePath: string) {
 }
 
-function rewriteImagePaths(content: string, filePath: string) {
-  const imagePathPrefix = p.join("/courses", getSlugPath(filePath, content))
-  return content.replace(
-    MARKDOWN_IMAGE_PATH_REGEX,
-    (_, altText, imagePath) => `![${altText}](${p.join(imagePathPrefix, imagePath)})`
-  ).replace(
-    HTML_IMAGE_PATH_REGEX,
-    (_, imagePath, attributes) => `<img src="${p.join(imagePathPrefix, imagePath)}"${attributes}/>`
-  ).replace(
-    THUMBNAIL_IMAGE_PATH_REGEX,
-    (_, imagePath) => `thumbnail: ${p.join(imagePathPrefix, imagePath)}`
-  )
-}
 
-export function getSlugPath(filePath: string, content?: string) {
+export async function getSlugPathUp(dirPath: string) {
   let partialResult: string[] = []
-  let dirPath = p.dirname(filePath)
   while (true) {
+    const filePath = p.join(dirPath, INDEX_FILE)
+    dirPath = p.resolve(dirPath, "..")
+
     if (fs.existsSync(filePath)) {
-      if (content === null) {
-        content = fs.readFileSync(filePath, "utf8")
-      }
-      if (p.basename(filePath) === INDEX_FILE) {
-        partialResult.push(matter(content).data.slug)
-      } else if (p.extname(filePath) === MD_EXT) {
-        partialResult.push(slugify(matter(content).data.title, {
-          replacement: "-",
-          lower: true,
-          strict: true,
-        }))
+      const serialized = await serialize(
+        fs.readFileSync(filePath, "utf8"),
+        { parseFrontmatter: true },
+      )
+      if (serialized.frontmatter.hasOwnProperty("slug")) {
+        partialResult.push(serialized.frontmatter.slug)
       }
     } else {
       break
     }
-    dirPath = p.resolve(dirPath, "..")
-    filePath = p.join(dirPath, INDEX_FILE)
-    content = null
   }
-  return p.join(...partialResult.reverse())
+  return p.posix.join(...partialResult.reverse());
 }
-
 
 export function setLogger(newLogger: Logger) {
   logger = newLogger
