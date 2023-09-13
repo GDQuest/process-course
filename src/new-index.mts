@@ -25,23 +25,25 @@ export function processContent(workingDirPath: string) {
   const contentDirPath = p.join(workingDirPath, "content")
   const outputDirPath = p.join(workingDirPath, "content-processed")
   processSections(contentDirPath, outputDirPath)
+  processMarkdownFiles(contentDirPath, outputDirPath)
+  processOtherFiles(contentDirPath, outputDirPath)
 }
 
 export function processSections(contentDirPath: string, outputDirPath: string) {
-  const dirPaths = [contentDirPath, ...utils.fsFind(
+  const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
     false,
     (path: string) =>
       fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
   )]
-  for (const dirPath of dirPaths) {
-    processSection(contentDirPath, outputDirPath, dirPath)
+  for (const inDirPath of inDirPaths) {
+    processSection(contentDirPath, outputDirPath, inDirPath)
   }
 }
 
-export async function processSection(contentDirPath: string, outputDirPath: string, dirPath: string) {
+export async function processSection(contentDirPath: string, outputDirPath: string, inDirPath: string) {
   let content = ""
-  const inFilePath = p.join(dirPath, INDEX_FILE)
+  const inFilePath = p.join(inDirPath, INDEX_FILE)
   const outFilePath = p
     .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
     .replace(MD_EXT, JSON_EXT)
@@ -50,7 +52,7 @@ export async function processSection(contentDirPath: string, outputDirPath: stri
   if (inFileExists && utils.isFileAOlderThanB(outFilePath, inFilePath)) {
     content = fs.readFileSync(inFilePath, "utf8")
   } else if (!inFileExists) {
-    const defaultName = p.basename(dirPath).replace(/^\d+\./, "")
+    const defaultName = p.basename(inDirPath).replace(/^\d+\./, "")
     content = [
       "---",
       `title: "PLACEHOLDER TITLE (missing _index.md): ${defaultName.replace(/-/, " ")}"`,
@@ -60,85 +62,118 @@ export async function processSection(contentDirPath: string, outputDirPath: stri
     ].join("\n")
   }
 
-  if (content.length > 0) {
-    fsExtra.ensureDirSync(p.dirname(outFilePath))
+  const doWriteFile = content.length > 0
+  if (doWriteFile) {
     const serialized = await serialize(
       content,
       {
         ...MDX_SERIALIZE_OPTIONS,
         mdxOptions: {
-          remarkPlugins: [remarkProcessSection(dirPath, inFilePath)],
+          remarkPlugins: [remarkProcessSection(inFilePath)],
         },
       },
     )
+    fsExtra.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(serialized))
   }
 }
 
-function remarkProcessSection(dirPath: string, inFilePath: string) {
+export function remarkProcessSection(inFilePath: string) {
+  const inDirPath = p.dirname(inFilePath)
   return () => async (tree, vFile) => {
-    const slug = p.posix.join(await getSlugPathUp(p.resolve(dirPath, "..")), vFile.data.matter.slug)
-    const imagePathPrefix = p.posix.join(COURSES_ROOT_PATH, slug)
-    if (vFile.data.hasOwnProperty("matter") && vFile.data.matter.hasOwnProperty("thumbnail")) {
-      const filePath = p.join(dirPath, vFile.data.matter.thumbnail)
+    const imagePathPrefix = p.posix.join(
+      COURSES_ROOT_PATH,
+      await getSlugPathUp(p.dirname(inDirPath)),
+      vFile.data.matter.slug,
+    )
+
+    if (vFile.data.matter.hasOwnProperty("thumbnail")) {
+      const filePath = p.join(inDirPath, vFile.data.matter.thumbnail)
       utils.checkFileExists(
         filePath,
-        `Couldn't find required '${filePath}' for '${inFilePath}' at in frontmatter`
+        `Couldn't find required '${filePath}' for '${inFilePath}' in frontmatter`
       )
       vFile.data.matter.thumbnail = p.posix.join(imagePathPrefix, vFile.data.matter.thumbnail)
     }
 
-    visit(tree, (node) => {
-      let checkFilePath = ""
-      if (node.type === "image") {
-        checkFilePath = p.join(dirPath, node.url)
-        node.url = p.posix.join(imagePathPrefix, node.url)
-      } else if (node.type === "mdxJsxFlowElement" && node.name === "img") {
-        node.attributes
-          .filter((attr) => attr.name === "src")
-          .forEach((attr) => {
-            checkFilePath = p.join(dirPath, attr.value)
-            attr.value = p.posix.join(imagePathPrefix, attr.value)
-          })
-      }
-
-      if (checkFilePath.length > 0) {
-        utils.checkFileExists(
-          checkFilePath,
-          `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line '${node.position.start.line}'`
-        )
-      }
-    })
+    visit(tree, rewriteImagePathsVisitor(inFilePath, imagePathPrefix))
   }
 }
-
 
 export function processMarkdownFiles(contentDirPath: string, outputDirPath: string) {
-  const filePaths = utils.fsFind(
+  const inFilePaths = utils.fsFind(
     contentDirPath,
     true,
-    (path: string) => p.extname(path) == MD_EXT
+    (path: string) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
   )
-  for (const filePath of filePaths) {
-    processMarkdownFile(outputDirPath, filePath)
+  for (const inFilePath of inFilePaths) {
+    processMarkdownFile(contentDirPath, outputDirPath, inFilePath)
   }
 }
 
-export function processMarkdownFile(outputDirPath: string, filePath: string) {
+export async function processMarkdownFile(contentDirPath: string, outputDirPath: string, inFilePath: string) {
+  const outFilePath = p
+    .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+    .replace(MD_EXT, JSON_EXT)
+  const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
+  if (doWriteFile) {
+    const serialized = await serialize(
+      fs.readFileSync(inFilePath, "utf8"),
+      {
+        ...MDX_SERIALIZE_OPTIONS,
+        mdxOptions: {
+          remarkPlugins: [remarkProcessMarkdownFile(inFilePath)],
+        },
+      },
+    )
+
+    fsExtra.ensureDirSync(p.dirname(outFilePath))
+    fs.writeFileSync(outFilePath, JSON.stringify(serialized))
+  }
 }
 
+export function remarkProcessMarkdownFile(inFilePath: string) {
+  return () => async (tree, vFile) => {
+    const imagePathPrefix = p.posix.join(
+      COURSES_ROOT_PATH,
+      await getSlugPathUp(p.dirname(inFilePath)),
+    )
+    visit(tree, rewriteImagePathsVisitor(inFilePath, imagePathPrefix))
+  }
+}
+
+export function processOtherFiles(contentDirPath: string, outputDirPath: string) {
+  const inFilePaths = utils.fsFind(
+    contentDirPath,
+    true,
+    (path: string) => fs.lstatSync(path).isFile() && p.extname(path) !== MD_EXT
+  )
+  for (const inFilePath of inFilePaths) {
+    processOtherFile(contentDirPath, outputDirPath, inFilePath)
+  }
+}
+
+export function processOtherFile(contentDirPath: string, outputDirPath: string, inFilePath: string) {
+  const outFilePath = p.join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+  const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
+  if (doWriteFile) {
+    fsExtra.ensureDirSync(p.dirname(outFilePath))
+    fs.copyFileSync(inFilePath, outFilePath)
+  }
+}
 
 export async function getSlugPathUp(dirPath: string) {
   let partialResult: string[] = []
   while (true) {
-    const filePath = p.join(dirPath, INDEX_FILE)
-    dirPath = p.resolve(dirPath, "..")
+    const inFilePath = p.join(dirPath, INDEX_FILE)
+    dirPath = p.dirname(dirPath)
 
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(inFilePath)) {
       const serialized = await serialize(
-        fs.readFileSync(filePath, "utf8"),
+        fs.readFileSync(inFilePath, "utf8"),
         { parseFrontmatter: true },
       )
+
       if (serialized.frontmatter.hasOwnProperty("slug")) {
         partialResult.push(serialized.frontmatter.slug)
       }
@@ -147,6 +182,31 @@ export async function getSlugPathUp(dirPath: string) {
     }
   }
   return p.posix.join(...partialResult.reverse());
+}
+
+export function rewriteImagePathsVisitor(inFilePath: string, imagePathPrefix: string) {
+  const inDirPath = p.dirname(inFilePath)
+  return (node) => {
+    let checkFilePath = ""
+    if (node.type === "image") {
+      checkFilePath = p.join(inDirPath, node.url)
+      node.url = p.posix.join(imagePathPrefix, node.url)
+    } else if (node.type === "mdxJsxFlowElement" && node.name === "img") {
+      node.attributes
+        .filter((attr) => attr.name === "src")
+        .forEach((attr) => {
+          checkFilePath = p.join(inDirPath, attr.value)
+          attr.value = p.posix.join(imagePathPrefix, attr.value)
+        })
+    }
+
+    if (checkFilePath.length > 0) {
+      utils.checkFileExists(
+        checkFilePath,
+        `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line '${node.position.start.line}' relative to frontmatter`
+      )
+    }
+  }
 }
 
 export function setLogger(newLogger: Logger) {
