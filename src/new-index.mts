@@ -30,15 +30,14 @@ export function processContent(workingDirPath: string) {
 }
 
 export function processSections(contentDirPath: string, outputDirPath: string) {
-  const inDirPaths = [contentDirPath, ...utils.fsFind(
+  [contentDirPath, ...utils.fsFind(
     contentDirPath,
     false,
     (path: string) =>
       fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
-  )]
-  for (const inDirPath of inDirPaths) {
+  )].forEach((inDirPath) => {
     processSection(contentDirPath, outputDirPath, inDirPath)
-  }
+  })
 }
 
 export async function processSection(contentDirPath: string, outputDirPath: string, inDirPath: string) {
@@ -101,14 +100,13 @@ export function remarkProcessSection(inFilePath: string) {
 }
 
 export function processMarkdownFiles(contentDirPath: string, outputDirPath: string) {
-  const inFilePaths = utils.fsFind(
+  utils.fsFind(
     contentDirPath,
     true,
     (path: string) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
-  )
-  for (const inFilePath of inFilePaths) {
+  ).forEach((inFilePath) => {
     processMarkdownFile(contentDirPath, outputDirPath, inFilePath)
-  }
+  })
 }
 
 export async function processMarkdownFile(contentDirPath: string, outputDirPath: string, inFilePath: string) {
@@ -143,14 +141,13 @@ export function remarkProcessMarkdownFile(inFilePath: string) {
 }
 
 export function processOtherFiles(contentDirPath: string, outputDirPath: string) {
-  const inFilePaths = utils.fsFind(
+  utils.fsFind(
     contentDirPath,
     true,
     (path: string) => fs.lstatSync(path).isFile() && p.extname(path) !== MD_EXT
-  )
-  for (const inFilePath of inFilePaths) {
+  ).forEach((inFilePath) => {
     processOtherFile(contentDirPath, outputDirPath, inFilePath)
-  }
+  })
 }
 
 export function processOtherFile(contentDirPath: string, outputDirPath: string, inFilePath: string) {
@@ -207,6 +204,18 @@ export function rewriteImagePathsVisitor(inFilePath: string, imagePathPrefix: st
       )
     }
   }
+}
+
+export function extractTextBetweenAnchors(content: string, anchorName: string) {
+  const anchorPattern = new RegExp(
+    `(?:#|\\/\\/)\\s*ANCHOR:\\s*\\b${anchorName}\\b\\s*\\r?\\n(.*?)\\s*(?:#|\\/\\/)\\s*END:\\s*\\b${anchorName}\\b`,
+    "gms"
+  )
+  const match = anchorPattern.exec(content)
+  if (!match[1]) {
+    throw Error(`No matching '${anchorName}' anchor found`)
+  }
+  return match[1]
 }
 
 export function setLogger(newLogger: Logger) {
