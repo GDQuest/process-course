@@ -15,7 +15,7 @@ export function fsFind(currentPath: string, isRecursive: boolean, findPredicate:
         result.push(listingPath)
       }
 
-      if (fs.statSync(listingPath).isDirectory() && isRecursive) {
+      if (fs.lstatSync(listingPath).isDirectory() && isRecursive) {
         go(listingPath, result)
       }
     }
@@ -32,11 +32,12 @@ export function checkFileExists(filePath: string, errorMessage?: string) {
   let result = true
   if (!fs.existsSync(filePath)) {
     result = false
-    errorMessage ??= `Couldn't find required file '${filePath}'`
-    const error = Error(errorMessage)
-    logger.error(error.message)
+    const error = Error(errorMessage || `Couldn't find required file '${filePath}'`)
     if (process.env.NODE_ENV === PRODUCTION) {
+      logger.error(error.message)
       throw error
+    } else {
+      logger.warn(error.message)
     }
   }
   return result

@@ -1,8 +1,5 @@
 {
   "compilerOptions": {
-    // "target": "es2022",
-    // "module": "es2022",
-    // "moduleResolution": "node",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
@@ -10,7 +7,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
   },
   "include": ["src"],
   "exclude": ["node_modules"]
