@@ -12,10 +12,10 @@ import rehypeCodeTitles from "rehype-code-titles"
 import rehypePrism from "rehype-prism-plus"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
 import slugify from "slugify"
+import { execFileSync } from "child_process"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
 import * as utils from "./utils.mjs"
-import { execFileSync } from "child_process"
 
 type VisitedNodes = {
   images: any[],
@@ -63,8 +63,11 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
 export function watchGodotProjects(workingDirPath: string, outputDirPath: string) {
   const godotProjectDirPaths = utils.fsFind(
     workingDirPath,
-    false,
-    (path: string) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE))
+    {
+      depthLimit: 0,
+      nofile: true,
+      filter: ({ path }) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE)),
+    },
   )
   for (const godotProjectDirPath of godotProjectDirPaths) {
     const watcher = chokidar.watch(
@@ -79,20 +82,23 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
 
 export function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   processContent(workingDirPath, contentDirPath, outputDirPath)
-  processGodotProjects(workingDirPath, outputDirPath)
+  // processGodotProjects(workingDirPath, outputDirPath)
 }
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  processSections(workingDirPath, contentDirPath, outputDirPath)
+  // processSections(workingDirPath, contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
-  processOtherFiles(contentDirPath, outputDirPath)
+  // processOtherFiles(contentDirPath, outputDirPath)
 }
 
 export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
-    false,
-    (path: string) => fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
+    {
+      depthLimit: 0,
+      nofile: true,
+      filter: ({ path }) => SECTION_REGEX.test(p.basename(path))
+    }
   )]
   for (const inDirPath of inDirPaths) {
     processSection(inDirPath, workingDirPath, contentDirPath, outputDirPath)
@@ -163,8 +169,11 @@ export function remarkProcessSection(inFilePath: string, workingDirPath: string)
 export function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
     contentDirPath,
-    true,
-    (path: string) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
+    {
+      nodir: true,
+      traverseAll: true,
+      filter: ({ path }) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
+    }
   )
   for (const inFilePath of inFilePaths) {
     processMarkdownFile(inFilePath, workingDirPath, contentDirPath, outputDirPath)
@@ -207,8 +216,10 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
 export function processOtherFiles(contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
     contentDirPath,
-    true,
-    (path: string) => fs.lstatSync(path).isFile() && p.extname(path) !== MD_EXT
+    {
+      nodir: true,
+      filter: ({ path }) => p.extname(path) !== MD_EXT
+    }
   )
   for (const inFilePath of inFilePaths) {
     processOtherFile(inFilePath, contentDirPath, outputDirPath)
@@ -313,8 +324,11 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
 export function processGodotProjects(workingDirPath: string, outputDirPath: string) {
   const godotProjectDirPaths = utils.fsFind(
     workingDirPath,
-    false,
-    (path: string) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE))
+    {
+      depthLimit: 0,
+      nofile: true,
+      filter: ({ path }) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE)),
+    },
   )
   for (const godotProjectDirPath of godotProjectDirPaths) {
     processGodotProject(godotProjectDirPath, outputDirPath)
@@ -329,10 +343,11 @@ export function processGodotProject(godotProjectDirPath: string, outputDirPath: 
 
   const godotProjectFilePaths = utils.fsFind(
     godotProjectDirPath,
-    true,
-    (path: string) =>
-      fs.lstatSync(path).isFile() && !GODOT_IGNORED.some((dir: string) => path.includes(`${dir}`))
-  )
+    {
+      nodir: true,
+      filter: ({ path }) =>
+        !GODOT_IGNORED.some((dir: string) => path.includes(`${dir}`))
+    })
 
   if (godotProjectFilePaths.length > 0) {
     const godotPracticeBuildPath = p.join(godotProjectDirPath, ...GODOT_PRACTICE_BUILD)

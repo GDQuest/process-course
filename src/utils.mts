@@ -1,27 +1,17 @@
 import * as fs from "fs"
-import p from "path"
+import klawSync from "klaw-sync"
 import { logger, PRODUCTION } from "./index.mjs"
 
-export function fsFind(currentPath: string, isRecursive: boolean, findPredicate: (path: string) => boolean, ignorePredicate = (path: string) => false): string[] {
-  const go = (path: string, result: string[]) => {
-    const listing = fs.readdirSync(path)
-    for (let name of listing) {
-      const listingPath = p.join(path, name)
-      if (ignorePredicate(path)) {
-        continue
-      }
+type KlawOptions = {
+  nodir?: boolean,
+  nofile?: boolean,
+  depthLimit?: number,
+  filter?: (param: { path: string, stat: fs.Stats }) => boolean,
+  traverseAll?: boolean,
+}
 
-      if (findPredicate(listingPath)) {
-        result.push(listingPath)
-      }
-
-      if (fs.lstatSync(listingPath).isDirectory() && isRecursive) {
-        go(listingPath, result)
-      }
-    }
-    return result
-  }
-  return go(currentPath, [])
+export function fsFind(path: string, klawOptions: KlawOptions) {
+  return klawSync(path, klawOptions).map(({ path }) => path) as string[]
 }
 
 export function isFileAOlderThanB(pathA: string, pathB: string) {
