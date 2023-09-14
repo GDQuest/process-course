@@ -82,13 +82,13 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
 
 export function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   processContent(workingDirPath, contentDirPath, outputDirPath)
-  // processGodotProjects(workingDirPath, outputDirPath)
+  processGodotProjects(workingDirPath, outputDirPath)
 }
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  // processSections(workingDirPath, contentDirPath, outputDirPath)
+  processSections(workingDirPath, contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
-  // processOtherFiles(contentDirPath, outputDirPath)
+  processOtherFiles(contentDirPath, outputDirPath)
 }
 
 export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -337,10 +337,6 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
 
 export function processGodotProject(godotProjectDirPath: string, outputDirPath: string) {
   const outDirPath = p.join(outputDirPath, PUBLIC_DIR, `${p.basename(godotProjectDirPath)}.zip`)
-  if (!utils.isFileAOlderThanB(outDirPath, godotProjectDirPath)) {
-    return
-  }
-
   const godotProjectFilePaths = utils.fsFind(
     godotProjectDirPath,
     {

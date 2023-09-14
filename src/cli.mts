@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { setLogger, processAll, watchAll } from "./index.mjs"
+import { setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mjs"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -47,9 +47,13 @@ export function runCli() {
   }))
 
   const args = readArgs({
-    b: ["build", "process the files"],
+    a: ["processAll", "process all (content & godot projects)"],
+    c: ["processContent", "process content"],
+    g: ["processGodot", "process godot projects"],
     h: ["help", "this text"],
-    w: ["watch", "run in watch mode"],
+    A: ["watchAll", "run in watch mode"],
+    C: ["watchContent", "run in watch content mode"],
+    G: ["watchGodot", "run in watch Godot projects mode"],
   })
 
   const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
@@ -61,12 +65,28 @@ export function runCli() {
     process.exit(0)
   }
 
-  if (args.build) {
+  if (args.processAll && !(args.processContent || args.processGodot)) {
     processAll(workingDirPath, contentDirPath, outputDirPath)
   }
 
-  if (args.watch) {
+  if (args.processContent) {
+    processContent(workingDirPath, contentDirPath, outputDirPath)
+  }
+
+  if (args.processGodot) {
+    processGodotProjects(workingDirPath, outputDirPath)
+  }
+
+  if (args.watchAll && !(args.watchContent || args.watchGodot)) {
     watchAll(workingDirPath, contentDirPath, outputDirPath)
+  }
+
+  if (args.watchContent) {
+    watchContent(workingDirPath, contentDirPath, outputDirPath)
+  }
+
+  if (args.watchGodot) {
+    watchGodotProjects(workingDirPath, outputDirPath)
   }
 }
 
