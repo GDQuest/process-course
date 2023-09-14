@@ -1,6 +1,7 @@
 import * as fs from "fs"
 import * as fse from "fs-extra/esm"
 import p from "path"
+import AdmZip from "adm-zip"
 import pino, { Logger } from "pino"
 import remarkGfm from "remark-gfm"
 import remarkUnwrapImages from "remark-unwrap-images"
@@ -10,8 +11,8 @@ import rehypePrism from "rehype-prism-plus"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
-import { zip } from "zip-a-folder"
 import * as utils from "./new-utils.mts"
+import matter from "gray-matter"
 
 type VisitedNodes = {
   images: any[],
@@ -25,28 +26,23 @@ const JSON_EXT = ".json"
 const INDEX_FILE = "_index.md"
 const GODOT_PROJECT_FILE = "project.godot"
 const GODOT_PLUGGED_DIR = `.plugged${p.sep}`
+const GIT_DIR = `.git${p.sep}`
 const SECTION_REGEX = /\d+\..+/
-
-let cache = {}
 
 export const PRODUCTION = "production"
 
 export let logger = pino({ name: "processCourse" })
 
-export async function processContent(workingDirPath: string) {
+export function processContent(workingDirPath: string) {
   const contentDirPath = p.join(workingDirPath, "content")
   const outputDirPath = p.join(workingDirPath, "content-processed")
-  const processedParts = await Promise.all([
-    processSections(workingDirPath, contentDirPath, outputDirPath),
-    processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath),
-    processOtherFiles(workingDirPath, contentDirPath, outputDirPath),
-    processGodotProjects(workingDirPath, outputDirPath)
-  ])
-  cache = Object.assign(cache, ...processedParts)
+  processSections(workingDirPath, contentDirPath, outputDirPath)
+  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
+  processOtherFiles(workingDirPath, contentDirPath, outputDirPath)
+  processGodotProjects(workingDirPath, outputDirPath)
 }
 
-export async function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
+export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
     false,
@@ -54,13 +50,11 @@ export async function processSections(workingDirPath: string, contentDirPath: st
       fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
   )]
   for (const inDirPath of inDirPaths) {
-    result = { ...result, ...await processSection(inDirPath, workingDirPath, contentDirPath, outputDirPath) }
+    processSection(inDirPath, workingDirPath, contentDirPath, outputDirPath)
   }
-  return result
 }
 
 export async function processSection(inDirPath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
   let content = ""
   const inFilePath = p.join(inDirPath, INDEX_FILE)
   const outFilePath = p
@@ -89,17 +83,15 @@ export async function processSection(inDirPath: string, workingDirPath: string, 
     )
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(serialized))
-    result = { ...result, [outFilePath]: serialized }
   }
-  return result
 }
 
 export function remarkProcessSection(inFilePath: string, workingDirPath: string) {
   const inDirPath = p.dirname(inFilePath)
-  return () => async (tree, vFile) => {
+  return () => (tree, vFile) => {
     const imagePathPrefix = p.posix.join(
       COURSES_ROOT_PATH,
-      ...await getSlugsUp(p.dirname(inDirPath)),
+      ...getSlugsUp(p.dirname(inDirPath)),
       vFile.data.matter.slug,
     )
 
@@ -123,21 +115,18 @@ export function remarkProcessSection(inFilePath: string, workingDirPath: string)
   }
 }
 
-export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
+export function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
     contentDirPath,
     true,
     (path: string) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
   )
   for (const inFilePath of inFilePaths) {
-    result = { ...result, ...await processMarkdownFile(inFilePath, workingDirPath, contentDirPath, outputDirPath) }
+    processMarkdownFile(inFilePath, workingDirPath, contentDirPath, outputDirPath)
   }
-  return result
 }
 
 export async function processMarkdownFile(inFilePath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
   const outFilePath = p
     .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
     .replace(MD_EXT, JSON_EXT)
@@ -149,16 +138,14 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
     )
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(serialized))
-    result = { ...result, [outFilePath]: serialized }
   }
-  return result
 }
 
 export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: string) {
-  return () => async (tree, vFile) => {
+  return () => (tree, vFile) => {
     const imagePathPrefix = p.posix.join(
       COURSES_ROOT_PATH,
-      ...await getSlugsUp(p.dirname(inFilePath)),
+      ...getSlugsUp(p.dirname(inFilePath)),
     )
 
     let visited: VisitedNodes = {
@@ -167,52 +154,41 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
     }
     visit(tree, visitor(visited))
 
-    await Promise.all([
-      rewriteImagePaths(visited.images, inFilePath, imagePathPrefix),
-      rewriteLinks(visited.links, inFilePath, workingDirPath),
-    ])
+    rewriteImagePaths(visited.images, inFilePath, imagePathPrefix)
+    rewriteLinks(visited.links, inFilePath, workingDirPath)
   }
 }
 
 export function processOtherFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
   const inFilePaths = utils.fsFind(
     contentDirPath,
     true,
     (path: string) => fs.lstatSync(path).isFile() && p.extname(path) !== MD_EXT
   )
   for (const inFilePath of inFilePaths) {
-    result = { ...result, ...processOtherFile(inFilePath, workingDirPath, contentDirPath, outputDirPath) }
+    processOtherFile(inFilePath, workingDirPath, contentDirPath, outputDirPath)
   }
-  return result
 }
 
 export function processOtherFile(inFilePath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  let result = {}
   const outFilePath = p.join(outputDirPath, inFilePath.replace(contentDirPath, ""))
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.copyFileSync(inFilePath, outFilePath)
-    result = { ...result, [outFilePath]: inFilePath }
   }
-  return result
 }
 
-export async function getSlugsUp(dirPath: string) {
+export function getSlugsUp(dirPath: string) {
   let partialResult: string[] = []
   while (true) {
     const inFilePath = p.join(dirPath, INDEX_FILE)
     dirPath = p.dirname(dirPath)
 
     if (fs.existsSync(inFilePath)) {
-      const serialized = await serialize(
-        fs.readFileSync(inFilePath, "utf8"),
-        { parseFrontmatter: true },
-      )
-
-      if (serialized.frontmatter.hasOwnProperty("slug")) {
-        partialResult.push(serialized.frontmatter.slug)
+      const frontmatter = matter(fs.readFileSync(inFilePath, "utf8"))
+      if (frontmatter.hasOwnProperty("slug")) {
+        partialResult.push(frontmatter.slug)
       }
     } else {
       break
@@ -272,36 +248,31 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
   }
 }
 
-export async function processGodotProjects(workingDirPath: string, outputDirPath: string) {
-  const godotProjectDirPaths = utils
-    .fsFind(
-      workingDirPath,
+export function processGodotProjects(workingDirPath: string, outputDirPath: string) {
+  const godotProjectDirPaths = utils.fsFind(
+    workingDirPath,
+    false,
+    (path: string) => fse.pathExistsSync(p.join(path, GODOT_PROJECT_FILE))
+  )
+  for (const godotProjectDirPath of godotProjectDirPaths) {
+    const godotProjectFilePaths = utils.fsFind(
+      godotProjectDirPath,
       true,
       (path: string) =>
-        p.basename(path) === GODOT_PROJECT_FILE && !path.includes(GODOT_PLUGGED_DIR)
-    ).map((path: string) => p.dirname(path))
-  const outTmpDirPath = p.join(outputDirPath, "tmp")
-  await Promise.all(
-    godotProjectDirPaths.map(async (godotProjectDirPath: string) => {
-      const godotProjectDirName = p.basename(godotProjectDirPath)
-      const godotPluggedDirPath = p.join(godotProjectDirPath, GODOT_PLUGGED_DIR)
-      const outDirPath = p.join(outputDirPath, "public", godotProjectDirName)
-      const outGodotPluggedDirPath = p.join(outTmpDirPath, godotProjectDirName, GODOT_PLUGGED_DIR)
-      const zipFilePath = `${outDirPath}.zip`
-      if (fs.existsSync(godotPluggedDirPath)) {
-        fse.ensureDirSync(p.dirname(outGodotPluggedDirPath))
-        fse.moveSync(godotPluggedDirPath, outGodotPluggedDirPath, { overwrite: true })
-      }
+        fs.lstatSync(path).isFile() && ![GODOT_PLUGGED_DIR, GIT_DIR].some((dir: string) => path.includes(dir))
+    )
 
+    if (godotProjectFilePaths.length > 0) {
+      const zip = new AdmZip()
+      for (const godotProjectFilePath of godotProjectFilePaths) {
+        const zipDirPath = p.relative(godotProjectDirPath, p.dirname(godotProjectFilePath))
+        zip.addLocalFile(godotProjectFilePath, zipDirPath)
+      }
+      const outDirPath = p.join(outputDirPath, "public", `${p.basename(godotProjectDirPath)}.zip`)
       fse.ensureDirSync(p.dirname(outDirPath))
-      await zip(godotProjectDirPath, zipFilePath)
-
-      if (fs.existsSync(outGodotPluggedDirPath)) {
-        fse.moveSync(outGodotPluggedDirPath, godotPluggedDirPath, { overwrite: true })
-      }
-    })
-  )
-  fse.removeSync(outTmpDirPath)
+      zip.writeZip(outDirPath)
+    }
+  }
 }
 
 export function extractTextBetweenAnchors(content: string, anchorName: string) {
