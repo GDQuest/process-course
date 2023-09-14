@@ -1,5 +1,6 @@
 import * as fs from "fs"
 import * as fse from "fs-extra/esm"
+import * as chokidar from "chokidar"
 import p from "path"
 import AdmZip from "adm-zip"
 import pino, { Logger } from "pino"
@@ -14,6 +15,7 @@ import slugify from "slugify"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
 import * as utils from "./utils.mts"
+import { exec, execFile, execFileSync } from "child_process"
 
 type VisitedNodes = {
   images: any[],
@@ -22,33 +24,75 @@ type VisitedNodes = {
 
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
+const PUBLIC_DIR = "public"
 const MD_EXT = ".md"
 const JSON_EXT = ".json"
 const INDEX_FILE = "_index.md"
+const GODOT_EXE = "godot"
+const GODOT_PRACTICE_BUILD = ["addons", "gdquest_practice_framework", "build.gd"]
 const GODOT_PROJECT_FILE = "project.godot"
-const GODOT_PLUGGED_DIR = `.plugged${p.sep}`
-const GIT_DIR = `.git${p.sep}`
+const GODOT_IGNORED = [".plugged", ".git", ".gitattributes", ".gitignore"]
 const SECTION_REGEX = /\d+\..+/
 
 export const PRODUCTION = "production"
 
 export let logger = pino({ name: "processCourse" })
 
-export function processContent(workingDirPath: string) {
-  const contentDirPath = p.join(workingDirPath, "content")
-  const outputDirPath = p.join(workingDirPath, "content-processed")
+export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+  watchContent(workingDirPath, contentDirPath, outputDirPath)
+  watchGodotProjects(workingDirPath, outputDirPath)
+}
+
+export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+  const watcher = chokidar.watch(contentDirPath, { ignored: "*~" })
+  watcher.on("all", (eventName, inPath) => {
+    if (eventName === "unlink" || eventName === "unlinkDir") {
+      fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
+    } else if (eventName === "change") {
+      if (p.basename(inPath) === INDEX_FILE) {
+        processSection(p.dirname(inPath), workingDirPath, contentDirPath, outputDirPath)
+      } else if (p.extname(inPath) === MD_EXT) {
+        processMarkdownFile(inPath, workingDirPath, contentDirPath, outputDirPath)
+      } else {
+        processOtherFile(inPath, workingDirPath, contentDirPath, outputDirPath)
+      }
+    }
+  })
+}
+
+export function watchGodotProjects(workingDirPath: string, outputDirPath: string) {
+  const godotProjectDirPaths = utils.fsFind(
+    workingDirPath,
+    false,
+    (path: string) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE))
+  )
+  for (const godotProjectDirPath of godotProjectDirPaths) {
+    const watcher = chokidar.watch(
+      godotProjectDirPath,
+      { ignored: ["*~", ...GODOT_IGNORED.map((path) => `**/${path}`)] }
+    )
+    watcher.on("all", () => {
+      processGodotProject(godotProjectDirPath, outputDirPath)
+    })
+  }
+}
+
+export function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+  // processContent(workingDirPath, contentDirPath, outputDirPath)
+  processGodotProjects(workingDirPath, outputDirPath)
+}
+
+export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   processSections(workingDirPath, contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
   processOtherFiles(workingDirPath, contentDirPath, outputDirPath)
-  processGodotProjects(workingDirPath, outputDirPath)
 }
 
 export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
     false,
-    (path: string) =>
-      fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
+    (path: string) => fs.lstatSync(path).isDirectory() && SECTION_REGEX.test(p.basename(path))
   )]
   for (const inDirPath of inDirPaths) {
     processSection(inDirPath, workingDirPath, contentDirPath, outputDirPath)
@@ -59,10 +103,10 @@ export async function processSection(inDirPath: string, workingDirPath: string, 
   let content = ""
   const inFilePath = p.join(inDirPath, INDEX_FILE)
   const outFilePath = p
-    .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+    .join(outputDirPath, p.relative(contentDirPath, inFilePath))
     .replace(MD_EXT, JSON_EXT)
 
-  const inFileExists = utils.checkFileExists(inFilePath)
+  const inFileExists = utils.checkPathExists(inFilePath)
   if (inFileExists && utils.isFileAOlderThanB(outFilePath, inFilePath)) {
     content = fs.readFileSync(inFilePath, "utf8")
   } else if (!inFileExists) {
@@ -98,7 +142,7 @@ export function remarkProcessSection(inFilePath: string, workingDirPath: string)
 
     if (vFile.data.matter.hasOwnProperty("thumbnail")) {
       const filePath = p.join(inDirPath, vFile.data.matter.thumbnail)
-      utils.checkFileExists(
+      utils.checkPathExists(
         filePath,
         `Couldn't find required '${filePath}' for '${inFilePath}' in frontmatter`
       )
@@ -243,7 +287,7 @@ export function rewriteImagePaths(nodes: any[], inFilePath: string, imagePathPre
     }
 
     if (checkFilePath.length > 0) {
-      utils.checkFileExists(
+      utils.checkPathExists(
         checkFilePath,
         `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`
       )
@@ -259,10 +303,9 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
       checkFilePath = p.join(workingDirPath, "..", node.url.replace(COURSE_ROOT_PATH, ""))
     } else {
       checkFilePath = p.resolve(inDirPath, node.url)
-      utils.checkFileExists(checkFilePath)
     }
 
-    utils.checkFileExists(checkFilePath, `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`)
+    utils.checkPathExists(checkFilePath, `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`)
     node.url = node.url.replace(MD_EXT, "")
   }
 }
@@ -274,27 +317,36 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
     (path: string) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE))
   )
   for (const godotProjectDirPath of godotProjectDirPaths) {
-    const outDirPath = p.join(outputDirPath, "public", `${p.basename(godotProjectDirPath)}.zip`)
-    if (utils.isFileAOlderThanB(godotProjectDirPath, outDirPath)) {
-      continue
+    processGodotProject(godotProjectDirPath, outputDirPath)
+  }
+}
+
+export function processGodotProject(godotProjectDirPath: string, outputDirPath: string) {
+  const outDirPath = p.join(outputDirPath, PUBLIC_DIR, `${p.basename(godotProjectDirPath)}.zip`)
+  if (!utils.isFileAOlderThanB(outDirPath, godotProjectDirPath)) {
+    return
+  }
+
+  const godotProjectFilePaths = utils.fsFind(
+    godotProjectDirPath,
+    true,
+    (path: string) =>
+      fs.lstatSync(path).isFile() && !GODOT_IGNORED.some((dir: string) => path.includes(`${dir}`))
+  )
+
+  if (godotProjectFilePaths.length > 0) {
+    const godotPracticeBuildPath = p.join(godotProjectDirPath, ...GODOT_PRACTICE_BUILD)
+    if (fs.existsSync(godotPracticeBuildPath)) {
+      logger.info(execFileSync(GODOT_EXE, ["--path", godotProjectDirPath, "--headless", "--script", godotPracticeBuildPath]).toString("utf8"))
     }
 
-    const godotProjectFilePaths = utils.fsFind(
-      godotProjectDirPath,
-      true,
-      (path: string) =>
-        fs.lstatSync(path).isFile() && ![GODOT_PLUGGED_DIR, GIT_DIR].some((dir: string) => path.includes(dir))
-    )
-
-    if (godotProjectFilePaths.length > 0) {
-      const zip = new AdmZip()
-      for (const godotProjectFilePath of godotProjectFilePaths) {
-        const zipDirPath = p.relative(godotProjectDirPath, p.dirname(godotProjectFilePath))
-        zip.addLocalFile(godotProjectFilePath, zipDirPath)
-      }
-      fse.ensureDirSync(p.dirname(outDirPath))
-      zip.writeZip(outDirPath)
+    const zip = new AdmZip()
+    for (const godotProjectFilePath of godotProjectFilePaths) {
+      const zipDirPath = p.relative(godotProjectDirPath, p.dirname(godotProjectFilePath))
+      zip.addLocalFile(godotProjectFilePath, zipDirPath)
     }
+    fse.ensureDirSync(p.dirname(outDirPath))
+    zip.writeZip(outDirPath)
   }
 }
 

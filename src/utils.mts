@@ -28,11 +28,11 @@ export function isFileAOlderThanB(pathA: string, pathB: string) {
   return !fs.existsSync(pathA) || (fs.existsSync(pathA) && fs.lstatSync(pathA).mtimeMs < fs.lstatSync(pathB).mtimeMs)
 }
 
-export function checkFileExists(filePath: string, errorMessage?: string) {
+export function checkPathExists(path: string, errorMessage?: string) {
   let result = true
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(path)) {
     result = false
-    const error = Error(errorMessage || `Couldn't find required file '${filePath}'`)
+    const error = Error(errorMessage || `Couldn't find required file '${path}'`)
     if (process.env.NODE_ENV === PRODUCTION) {
       logger.error(error.message)
       throw error

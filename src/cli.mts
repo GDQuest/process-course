@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { setLogger, processContent } from "./index.mts"
+import { setLogger, processAll, watchAll } from "./index.mts"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -50,16 +50,23 @@ export function runCli() {
     b: ["build", "process the files"],
     h: ["help", "this text"],
     w: ["watch", "run in watch mode"],
-    z: ["zip", "build release version and zip results"],
   })
 
   const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
+  const contentDirPath = p.join(workingDirPath, "content")
+  const outputDirPath = p.join(workingDirPath, "content-processed")
 
   if (args.help) {
     help(args)
     process.exit(0)
-  } else if (args.build) {
-    processContent(workingDirPath)
+  }
+
+  if (args.build) {
+    processAll(workingDirPath, contentDirPath, outputDirPath)
+  }
+
+  if (args.watch) {
+    watchAll(workingDirPath, contentDirPath, outputDirPath)
   }
 }
 
