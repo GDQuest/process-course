@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { setLogger, processAll, watchAll } from "./index.mts"
+import { setLogger, processAll, watchAll } from "./index.mjs"
 
 type Args = Record<string, string | boolean> & {
   _: {

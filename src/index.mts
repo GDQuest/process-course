@@ -14,8 +14,8 @@ import rehypeAutolinkHeadings from "rehype-autolink-headings"
 import slugify from "slugify"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
-import * as utils from "./utils.mts"
-import { exec, execFile, execFileSync } from "child_process"
+import * as utils from "./utils.mjs"
+import { execFileSync } from "child_process"
 
 type VisitedNodes = {
   images: any[],
@@ -54,7 +54,7 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
       } else if (p.extname(inPath) === MD_EXT) {
         processMarkdownFile(inPath, workingDirPath, contentDirPath, outputDirPath)
       } else {
-        processOtherFile(inPath, workingDirPath, contentDirPath, outputDirPath)
+        processOtherFile(inPath, contentDirPath, outputDirPath)
       }
     }
   })
@@ -78,14 +78,14 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
 }
 
 export function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  // processContent(workingDirPath, contentDirPath, outputDirPath)
+  processContent(workingDirPath, contentDirPath, outputDirPath)
   processGodotProjects(workingDirPath, outputDirPath)
 }
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   processSections(workingDirPath, contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
-  processOtherFiles(workingDirPath, contentDirPath, outputDirPath)
+  processOtherFiles(contentDirPath, outputDirPath)
 }
 
 export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -173,7 +173,7 @@ export function processMarkdownFiles(workingDirPath: string, contentDirPath: str
 
 export async function processMarkdownFile(inFilePath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const outFilePath = p
-    .join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+    .join(outputDirPath, p.relative(contentDirPath, inFilePath))
     .replace(MD_EXT, JSON_EXT)
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
@@ -187,7 +187,7 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
 }
 
 export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: string) {
-  return () => (tree, vFile) => {
+  return () => (tree) => {
     const imagePathPrefix = p.posix.join(
       COURSES_ROOT_PATH,
       ...getSlugsUp(p.dirname(inFilePath)),
@@ -204,19 +204,19 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
   }
 }
 
-export function processOtherFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+export function processOtherFiles(contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
     contentDirPath,
     true,
     (path: string) => fs.lstatSync(path).isFile() && p.extname(path) !== MD_EXT
   )
   for (const inFilePath of inFilePaths) {
-    processOtherFile(inFilePath, workingDirPath, contentDirPath, outputDirPath)
+    processOtherFile(inFilePath, contentDirPath, outputDirPath)
   }
 }
 
-export function processOtherFile(inFilePath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  const outFilePath = p.join(outputDirPath, inFilePath.replace(contentDirPath, ""))
+export function processOtherFile(inFilePath: string, contentDirPath: string, outputDirPath: string) {
+  const outFilePath = p.join(outputDirPath, p.relative(contentDirPath, inFilePath))
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     fse.ensureDirSync(p.dirname(outFilePath))
@@ -300,7 +300,7 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
   for (let node of nodes) {
     let checkFilePath = ""
     if (node.url.startsWith(COURSE_ROOT_PATH)) {
-      checkFilePath = p.join(workingDirPath, "..", node.url.replace(COURSE_ROOT_PATH, ""))
+      checkFilePath = p.join(workingDirPath, "..", p.relative(COURSE_ROOT_PATH, node.url))
     } else {
       checkFilePath = p.resolve(inDirPath, node.url)
     }
