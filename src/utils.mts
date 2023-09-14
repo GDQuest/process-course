@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import p from "path"
-import { logger, PRODUCTION } from "./new-index.mts"
+import { logger, PRODUCTION } from "./index.mts"
 
 export function fsFind(currentPath: string, isRecursive: boolean, findPredicate: (path: string) => boolean, ignorePredicate = (path: string) => false): string[] {
   const go = (path: string, result: string[]) => {

@@ -3,16 +3,17 @@ import * as fse from "fs-extra/esm"
 import p from "path"
 import AdmZip from "adm-zip"
 import pino, { Logger } from "pino"
+import matter, { GrayMatterFile } from "gray-matter"
 import remarkGfm from "remark-gfm"
 import remarkUnwrapImages from "remark-unwrap-images"
 import rehypeSlug from "rehype-slug"
 import rehypeCodeTitles from "rehype-code-titles"
 import rehypePrism from "rehype-prism-plus"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
+import slugify from "slugify"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
-import * as utils from "./new-utils.mts"
-import matter from "gray-matter"
+import * as utils from "./utils.mts"
 
 type VisitedNodes = {
   images: any[],
@@ -180,15 +181,29 @@ export function processOtherFile(inFilePath: string, workingDirPath: string, con
 }
 
 export function getSlugsUp(dirPath: string) {
+  type FrontMatter = GrayMatterFile<string> & {
+    data: {
+      title?: string,
+      slug?: string
+    }
+  }
+
   let partialResult: string[] = []
   while (true) {
     const inFilePath = p.join(dirPath, INDEX_FILE)
     dirPath = p.dirname(dirPath)
 
     if (fs.existsSync(inFilePath)) {
-      const frontmatter = matter(fs.readFileSync(inFilePath, "utf8"))
+      const { data: frontmatter }: FrontMatter = matter(fs.readFileSync(inFilePath, "utf8"))
+      frontmatter.data
       if (frontmatter.hasOwnProperty("slug")) {
         partialResult.push(frontmatter.slug)
+      } else if (frontmatter.hasOwnProperty("title")) {
+        partialResult.push(slugify(frontmatter.title, {
+          replacement: "-",
+          lower: true,
+          strict: true,
+        }))
       }
     } else {
       break
@@ -202,7 +217,11 @@ export function visitor(visited: VisitedNodes) {
     if (node.type === "image" || (node.type === "mdxJsxFlowElement" && node.name === "img")) {
       visited.images.push(node)
     } else if (node.type === "link" && p.extname(node.url) === MD_EXT) {
-      visited.links.push(node)
+      try {
+        new URL(node.url)
+      } catch {
+        visited.links.push(node)
+      }
     }
   }
 }
@@ -252,9 +271,14 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
   const godotProjectDirPaths = utils.fsFind(
     workingDirPath,
     false,
-    (path: string) => fse.pathExistsSync(p.join(path, GODOT_PROJECT_FILE))
+    (path: string) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE))
   )
   for (const godotProjectDirPath of godotProjectDirPaths) {
+    const outDirPath = p.join(outputDirPath, "public", `${p.basename(godotProjectDirPath)}.zip`)
+    if (utils.isFileAOlderThanB(godotProjectDirPath, outDirPath)) {
+      continue
+    }
+
     const godotProjectFilePaths = utils.fsFind(
       godotProjectDirPath,
       true,
@@ -268,7 +292,6 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
         const zipDirPath = p.relative(godotProjectDirPath, p.dirname(godotProjectFilePath))
         zip.addLocalFile(godotProjectFilePath, zipDirPath)
       }
-      const outDirPath = p.join(outputDirPath, "public", `${p.basename(godotProjectDirPath)}.zip`)
       fse.ensureDirSync(p.dirname(outDirPath))
       zip.writeZip(outDirPath)
     }
