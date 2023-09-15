@@ -1,4 +1,4 @@
-// TODO: complete `index.json`, `index-search.json`
+// TODO: `index-search.json`
 import * as fs from "fs"
 import * as fse from "fs-extra"
 import * as chokidar from "chokidar"
@@ -26,6 +26,8 @@ type RemarkVisitedNodes = {
 
 type RehypeVisitedNodes = { headings: any[] }
 
+type Cache = Record<string, { frontmatter: any, content: string }>
+
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
 const PUBLIC_DIR = "public"
@@ -49,7 +51,7 @@ const SLUGIFY_OPTIONS = {
 
 export const PRODUCTION = "production"
 
-let cache = {}
+let cache: Cache = {}
 export let logger = pino({ name: "processCourse" })
 
 export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -70,7 +72,10 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
       if (p.basename(inPath) === IN_INDEX_FILE) {
         indexSection(p.dirname(inPath))
       } else if (p.extname(inPath) === MD_EXT) {
-        processMarkdownFile(inPath, workingDirPath, outputDirPath)
+        processMarkdownFile(inPath, workingDirPath, outputDirPath).then(
+          () => {
+            processFinal(contentDirPath, outputDirPath)
+          })
       } else {
         processOtherFile(inPath, contentDirPath, outputDirPath)
       }
@@ -105,9 +110,10 @@ export function processAll(workingDirPath: string, contentDirPath: string, outpu
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
-  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
+  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath).then(
+    () => processFinal(contentDirPath, outputDirPath)
+  )
   processOtherFiles(contentDirPath, outputDirPath)
-  processCourse(contentDirPath, outputDirPath)
 }
 
 export function indexSections(contentDirPath: string) {
@@ -147,17 +153,18 @@ export function indexSection(inDirPath: string) {
   }
 }
 
-export async function processCourse(contentDirPath: string, outputDirPath: string) {
+export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache[contentDirPath]
   const inFilePath = p.join(contentDirPath, IN_INDEX_FILE)
   const outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
+
+  const sections = getSections(outputDirPath)
+  updateLessonsPrevNext(sections)
+
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
-    let thumbnailPath = p.resolve(contentDirPath, frontmatter.thumbnail)
-    let tags: string[] = []
-    if (frontmatter.tags) {
-      tags = frontmatter.tags.map((tag: string) => ({ name: tag, slug: slugify(tag, SLUGIFY_OPTIONS) }))
-    }
+    const toc = generateCourseTOC(sections)
+    const thumbnailPath = p.resolve(contentDirPath, frontmatter.thumbnail)
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify({
       title: frontmatter.title,
@@ -173,7 +180,7 @@ export async function processCourse(contentDirPath: string, outputDirPath: strin
       video: frontmatter.video,
       draft: frontmatter.draft || false,
       price: frontmatter.price || 0,
-      tags: tags,
+      tags: (frontmatter.tags || []).map((tag: string) => ({ name: tag, slug: slugify(tag, SLUGIFY_OPTIONS), })),
       order: frontmatter.order || 0, // for sorting courses in browse page
       difficulty: frontmatter.difficulty || 1, // for sorting courses in browse page
       releaseDate: frontmatter.releaseDate || new Date("2000-01-01").toString(),
@@ -182,14 +189,13 @@ export async function processCourse(contentDirPath: string, outputDirPath: strin
       saleDiscount: frontmatter.saleDiscount || 0,
       banner: frontmatter.banner,
       copy: await getSerialized(new VFile(content), frontmatter),
-      // firstLessonUrl: `/course/${courseSlug}/${toc[0].slug}/${toc[0].lessons[0].slug}`,
-      // toc,
+      firstLessonUrl: p.posix.join(COURSE_ROOT_PATH, frontmatter.slug, toc[0].slug, toc[0].lessons[0].slug),
+      toc,
     }))
   }
 }
 
-
-export function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
     contentDirPath,
     {
@@ -199,7 +205,7 @@ export function processMarkdownFiles(workingDirPath: string, contentDirPath: str
     }
   )
   for (const inFilePath of inFilePaths) {
-    processMarkdownFile(inFilePath, workingDirPath, outputDirPath)
+    await processMarkdownFile(inFilePath, workingDirPath, outputDirPath)
   }
 }
 
@@ -225,13 +231,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify({
       url,
+      title: frontmatter.title,
       slug: frontmatter.slug,
       serializedMDX,
       toc: vFile.data.toc,
       free: frontmatter.free || false,
       draft: frontmatter.draft || false,
-      prev: null,
-      next: null,
     }))
   }
 }
@@ -242,11 +247,13 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
       COURSES_ROOT_PATH,
       ...getSlugs(p.dirname(inFilePath)),
     )
+
     let visited: RemarkVisitedNodes = {
       images: [],
       links: [],
     }
     visit(tree, remarkVisitor(visited))
+
     rewriteImagePaths(visited.images, inFilePath, imagePathPrefix)
     rewriteLinks(visited.links, inFilePath, workingDirPath)
   }
@@ -256,7 +263,8 @@ export function rehypeProcessMarkdownFile() {
   return (tree, vFile) => {
     let visited: RehypeVisitedNodes = { headings: [] }
     visit(tree, rehypeVisitor(visited))
-    generateTOC(visited.headings, vFile)
+
+    generateLessonTOC(visited.headings, vFile)
   }
 }
 
@@ -353,7 +361,7 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
   }
 }
 
-export function generateTOC(nodes: any[], vFile) {
+export function generateLessonTOC(nodes: any[], vFile) {
   vFile.data.toc = []
   for (const node of nodes) {
     for (const child of node.children) {
@@ -366,6 +374,68 @@ export function generateTOC(nodes: any[], vFile) {
       }
     }
   }
+}
+
+export function getSections(outputDirPath: string) {
+  return Object.values(cache).slice(1)
+    .map((data) => ({
+      title: data.frontmatter.title,
+      slug: data.frontmatter.slug,
+      lessons: utils.fsFind(
+        p.join(outputDirPath, data.frontmatter.slug),
+        {
+          nodir: true,
+          traverseAll: true,
+          filter: ({ path }) => p.extname(path) === JSON_EXT,
+        },
+      ).map((path: string) => ({
+        path,
+        content: JSON.parse(fs.readFileSync(path, "utf8")),
+      }))
+    }))
+}
+
+export function generateCourseTOC(sections: any[]) {
+  return sections.map((section) => ({
+    ...section,
+    lessons: section.lessons.map((lesson: any) => ({
+      title: lesson.content.title,
+      slug: lesson.content.slug,
+      url: lesson.content.url,
+      draft: lesson.content.draft,
+      free: lesson.content.free,
+    })),
+  }))
+}
+
+export function updateLessonsPrevNext(sections: any[]) {
+  sections.forEach((section, sectionIndex) =>
+    section.lessons.forEach((lesson, lessonIndex: number) => {
+      let prevLesson = section.lessons[lessonIndex - 1] || null
+      let nextLesson = section.lessons[lessonIndex + 1] || null
+
+      if (!prevLesson && sectionIndex > 0) {
+        const prevSection = sections[sectionIndex - 1]
+        prevLesson = prevSection.lessons[prevSection.lessons.length - 1]
+      }
+
+      if (!nextLesson && sectionIndex < sections.length - 1) {
+        const nextSection = sections[sectionIndex + 1]
+        nextLesson = nextSection.lessons[0]
+      }
+
+      lesson.content.prev = null
+      if (prevLesson) {
+        lesson.content.prev = { title: prevLesson.content.title, url: prevLesson.content.url }
+      }
+
+      lesson.content.next = null
+      if (nextLesson) {
+        lesson.content.next = { title: nextLesson.content.title, url: nextLesson.content.url }
+      }
+      fs.writeFileSync(lesson.path, JSON.stringify(lesson.content))
+    })
+  )
 }
 
 export function processGodotProjects(workingDirPath: string, outputDirPath: string) {
