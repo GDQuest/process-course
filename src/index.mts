@@ -25,13 +25,13 @@ type RemarkVisitedNodes = {
 
 type RehypeVisitedNodes = { headings: any[] }
 
-
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
 const PUBLIC_DIR = "public"
 const MD_EXT = ".md"
 const JSON_EXT = ".json"
-const INDEX_FILE = "_index.md"
+const IN_INDEX_FILE = `_index${MD_EXT}`
+const OUT_INDEX_FILE = `index${JSON_EXT}`
 const GODOT_EXE = "godot"
 const GODOT_PRACTICE_BUILD = ["addons", "gdquest_practice_framework", "build.gd"]
 const GODOT_PROJECT_FILE = "project.godot"
@@ -48,7 +48,9 @@ const SLUGIFY_OPTIONS = {
 
 export const PRODUCTION = "production"
 
-let index = {}
+let cache = {
+  index: {},
+}
 export let logger = pino({ name: "processCourse" })
 
 export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -57,7 +59,7 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 }
 
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  if (utils.isObjectEmpty(index)) {
+  if (utils.isObjectEmpty(cache.index)) {
     indexSections(contentDirPath)
   }
 
@@ -66,7 +68,7 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
     } else if (eventName === "change") {
-      if (p.basename(inPath) === INDEX_FILE) {
+      if (p.basename(inPath) === IN_INDEX_FILE) {
         indexSection(p.dirname(inPath))
       } else if (p.extname(inPath) === MD_EXT) {
         processMarkdownFile(inPath, workingDirPath, outputDirPath)
@@ -104,6 +106,7 @@ export function processAll(workingDirPath: string, contentDirPath: string, outpu
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
+  processCourse(contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
   processOtherFiles(contentDirPath, outputDirPath)
 }
@@ -124,7 +127,7 @@ export function indexSections(contentDirPath: string) {
 
 export function indexSection(inDirPath: string) {
   let content = ""
-  const inFilePath = p.join(inDirPath, INDEX_FILE)
+  const inFilePath = p.join(inDirPath, IN_INDEX_FILE)
   if (utils.checkPathExists(inFilePath)) {
     content = fs.readFileSync(inFilePath, "utf8")
   } else {
@@ -139,9 +142,26 @@ export function indexSection(inDirPath: string) {
   }
 
   if (content !== "") {
-    index = { ...index, [inDirPath]: matter(content).data }
+    const { data: frontmatter } = matter(content)
+    frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
+    cache.index = { ...cache.index, [inDirPath]: frontmatter }
   }
 }
+
+export function processCourse(contentDirPath: string, outputDirPath: string) {
+  const frontmatter = cache.index[contentDirPath]
+  const inFilePath = p.join(contentDirPath, IN_INDEX_FILE)
+  const outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
+  const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
+  if (doWriteFile) {
+    fse.ensureDirSync(p.dirname(outFilePath))
+    fs.writeFileSync(outFilePath, JSON.stringify({
+      title: frontmatter.title,
+      slug: frontmatter.slug,
+    }))
+  }
+}
+
 
 export function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   const inFilePaths = utils.fsFind(
@@ -149,7 +169,7 @@ export function processMarkdownFiles(workingDirPath: string, contentDirPath: str
     {
       nodir: true,
       traverseAll: true,
-      filter: ({ path }) => p.extname(path) === MD_EXT && p.basename(path) !== INDEX_FILE
+      filter: ({ path }) => p.extname(path) === MD_EXT && p.basename(path) !== IN_INDEX_FILE
     }
   )
   for (const inFilePath of inFilePaths) {
@@ -161,14 +181,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   const { data: frontmatter, content } = matter(fs.readFileSync(inFilePath, "utf8")
     .replace(HTML_COMMENT_REGEX, "")
     .replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3"))
+  frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
   if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
     return
   }
-  frontmatter.slug = slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
-
-  const slugPath = getSlugs(p.dirname(inFilePath))
-  const outFilePath = `${(p.join(outputDirPath, COURSES_ROOT_PATH, ...slugPath, frontmatter.slug))}${JSON_EXT}`
-
+  const slugs = getSlugs(p.dirname(inFilePath))
+  const outFilePath = `${p.join(outputDirPath, ...slugs.slice(1), frontmatter.slug)}${JSON_EXT}`
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     let vFile = new VFile(content)
@@ -179,7 +197,7 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       [rehypeProcessMarkdownFile],
     )
 
-    const url = p.posix.join(COURSE_ROOT_PATH, ...slugPath, frontmatter.slug)
+    const url = p.posix.join(COURSE_ROOT_PATH, ...slugs, frontmatter.slug)
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify({
       url,
@@ -209,7 +227,6 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
     rewriteLinks(visited.links, inFilePath, workingDirPath)
   }
 }
-
 
 export function rehypeProcessMarkdownFile() {
   return (tree, vFile) => {
@@ -243,8 +260,8 @@ export function processOtherFile(inFilePath: string, contentDirPath: string, out
 
 export function getSlugs(dirPath: string) {
   let result: string[] = []
-  while (index.hasOwnProperty(dirPath)) {
-    result.push(index[dirPath].slug)
+  while (cache.index.hasOwnProperty(dirPath)) {
+    result.push(cache.index[dirPath].slug)
     dirPath = p.dirname(dirPath)
   }
   return result.reverse()
