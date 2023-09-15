@@ -1,5 +1,6 @@
 import * as fs from "fs"
 import klawSync from "klaw-sync"
+import lqip from 'lqip-modern'
 import { logger, PRODUCTION } from "./index.mts"
 
 export function fsFind(path: string, klawOptions: klawSync.Options) {
@@ -27,4 +28,18 @@ export function checkPathExists(path: string, errorMessage?: string) {
 
 export function isObjectEmpty(object: Object) {
   return Object.keys(object).length === 0
+}
+
+export async function downscaleImage(inFilePath: string) {
+  try {
+    const { metadata } = await lqip(inFilePath)
+    return metadata.dataURIBase64
+  } catch (error) {
+    if (process.env.NODE_ENV === PRODUCTION) {
+      logger.error(error.message)
+      throw error
+    } else {
+      logger.warn(error.message)
+    }
+  }
 }

@@ -1,3 +1,4 @@
+// TODO: complete `index.json`, `index-search.json`
 import * as fs from "fs"
 import * as fse from "fs-extra"
 import * as chokidar from "chokidar"
@@ -48,9 +49,7 @@ const SLUGIFY_OPTIONS = {
 
 export const PRODUCTION = "production"
 
-let cache = {
-  index: {},
-}
+let cache = {}
 export let logger = pino({ name: "processCourse" })
 
 export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -59,7 +58,7 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 }
 
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  if (utils.isObjectEmpty(cache.index)) {
+  if (utils.isObjectEmpty(cache)) {
     indexSections(contentDirPath)
   }
 
@@ -106,9 +105,9 @@ export function processAll(workingDirPath: string, contentDirPath: string, outpu
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
-  processCourse(contentDirPath, outputDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
   processOtherFiles(contentDirPath, outputDirPath)
+  processCourse(contentDirPath, outputDirPath)
 }
 
 export function indexSections(contentDirPath: string) {
@@ -126,13 +125,13 @@ export function indexSections(contentDirPath: string) {
 }
 
 export function indexSection(inDirPath: string) {
-  let content = ""
+  let inFileContent = ""
   const inFilePath = p.join(inDirPath, IN_INDEX_FILE)
   if (utils.checkPathExists(inFilePath)) {
-    content = fs.readFileSync(inFilePath, "utf8")
+    inFileContent = fs.readFileSync(inFilePath, "utf8")
   } else {
     const defaultName = p.basename(inDirPath).replace(/^\d+\./, "")
-    content = [
+    inFileContent = [
       "---",
       `title: "PLACEHOLDER TITLE (missing _index.md): ${defaultName.replace(/-/, " ")}"`,
       `slug: ${defaultName}`,
@@ -141,23 +140,50 @@ export function indexSection(inDirPath: string) {
     ].join("\n")
   }
 
-  if (content !== "") {
-    const { data: frontmatter } = matter(content)
+  if (inFileContent !== "") {
+    const { data: frontmatter, content } = matter(inFileContent)
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
-    cache.index = { ...cache.index, [inDirPath]: frontmatter }
+    cache = { ...cache, [inDirPath]: { frontmatter, content } }
   }
 }
 
-export function processCourse(contentDirPath: string, outputDirPath: string) {
-  const frontmatter = cache.index[contentDirPath]
+export async function processCourse(contentDirPath: string, outputDirPath: string) {
+  const { frontmatter, content } = cache[contentDirPath]
   const inFilePath = p.join(contentDirPath, IN_INDEX_FILE)
   const outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
+    let thumbnailPath = p.resolve(contentDirPath, frontmatter.thumbnail)
+    let tags: string[] = []
+    if (frontmatter.tags) {
+      tags = frontmatter.tags.map((tag: string) => ({ name: tag, slug: slugify(tag, SLUGIFY_OPTIONS) }))
+    }
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify({
       title: frontmatter.title,
       slug: frontmatter.slug,
+      description: frontmatter.description,
+      tagline: frontmatter.tagline,
+      salesPoints: frontmatter.salesPoints,
+      lastUpdated: frontmatter.lastUpdated,
+      godotVersion: frontmatter.godotVersion,
+      courseDuration: frontmatter.courseDuration,
+      thumbnail: p.posix.join(COURSES_ROOT_PATH, frontmatter.slug, p.posix.normalize(p.relative(contentDirPath, thumbnailPath))),
+      thumbnailPlaceholder: await utils.downscaleImage(thumbnailPath),
+      video: frontmatter.video,
+      draft: frontmatter.draft || false,
+      price: frontmatter.price || 0,
+      tags: tags,
+      order: frontmatter.order || 0, // for sorting courses in browse page
+      difficulty: frontmatter.difficulty || 1, // for sorting courses in browse page
+      releaseDate: frontmatter.releaseDate || new Date("2000-01-01").toString(),
+      saleEnd: frontmatter.saleEnd,
+      saleCoupon: frontmatter.saleCoupon,
+      saleDiscount: frontmatter.saleDiscount || 0,
+      banner: frontmatter.banner,
+      copy: await getSerialized(new VFile(content), frontmatter),
+      // firstLessonUrl: `/course/${courseSlug}/${toc[0].slug}/${toc[0].lessons[0].slug}`,
+      // toc,
     }))
   }
 }
@@ -178,9 +204,7 @@ export function processMarkdownFiles(workingDirPath: string, contentDirPath: str
 }
 
 export async function processMarkdownFile(inFilePath: string, workingDirPath: string, outputDirPath: string) {
-  const { data: frontmatter, content } = matter(fs.readFileSync(inFilePath, "utf8")
-    .replace(HTML_COMMENT_REGEX, "")
-    .replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3"))
+  const { data: frontmatter, content } = getMatter(fs.readFileSync(inFilePath, "utf8"))
   frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
   if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
     return
@@ -260,8 +284,8 @@ export function processOtherFile(inFilePath: string, contentDirPath: string, out
 
 export function getSlugs(dirPath: string) {
   let result: string[] = []
-  while (cache.index.hasOwnProperty(dirPath)) {
-    result.push(cache.index[dirPath].slug)
+  while (cache.hasOwnProperty(dirPath)) {
+    result.push(cache[dirPath].frontmatter.slug)
     dirPath = p.dirname(dirPath)
   }
   return result.reverse()
@@ -417,6 +441,14 @@ export async function getSerialized(vFile: VFile, frontmatter: Record<string, an
       },
       scope: frontmatter,
     },
+  )
+}
+
+
+export function getMatter(source: string) {
+  return matter(source
+    .replace(HTML_COMMENT_REGEX, "")
+    .replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3")
   )
 }
 
