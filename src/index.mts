@@ -57,6 +57,10 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 }
 
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+  if (utils.isObjectEmpty(index)) {
+    indexSections(contentDirPath)
+  }
+
   const watcher = chokidar.watch(contentDirPath, { ignored: "*~" })
   watcher.on("all", (eventName, inPath) => {
     if (eventName === "unlink" || eventName === "unlinkDir") {
@@ -134,7 +138,7 @@ export function indexSection(inDirPath: string) {
     ].join("\n")
   }
 
-  if (content) {
+  if (content !== "") {
     index = { ...index, [inDirPath]: matter(content).data }
   }
 }
@@ -284,7 +288,7 @@ export function rewriteImagePaths(nodes: any[], inFilePath: string, imagePathPre
         })
     }
 
-    if (checkFilePath.length > 0) {
+    if (checkFilePath !== "") {
       utils.checkPathExists(
         checkFilePath,
         `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`
@@ -369,7 +373,7 @@ export function extractTextBetweenAnchors(content: string, anchorName: string) {
     "gms"
   )
   const match = anchorPattern.exec(content)
-  if (!match[1]) {
+  if (match !== null && !match[1]) {
     throw Error(`No matching '${anchorName}' anchor found`)
   }
   return match[1]
