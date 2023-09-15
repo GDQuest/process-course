@@ -1,4 +1,3 @@
-// TODO: `index-search.json`
 import * as fs from "fs"
 import * as fse from "fs-extra"
 import * as chokidar from "chokidar"
@@ -227,13 +226,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       [rehypeProcessMarkdownFile],
     )
 
-    const url = p.posix.join(COURSE_ROOT_PATH, ...slugs, frontmatter.slug)
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify({
-      url,
+      serializedMDX,
+      url: p.posix.join(COURSE_ROOT_PATH, ...slugs, frontmatter.slug),
       title: frontmatter.title,
       slug: frontmatter.slug,
-      serializedMDX,
       toc: vFile.data.toc,
       free: frontmatter.free || false,
       draft: frontmatter.draft || false,
