@@ -29,7 +29,9 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@types/adm-zip": "^0.5.1",
     "@types/fs-extra": "^11.0.1",
+    "@types/klaw-sync": "^6.0.2",
     "@types/node": "^18.16.1",
     "pkg": "^5.8.1",
     "ts-node": "^10.9.1",

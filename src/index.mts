@@ -1,10 +1,10 @@
 import * as fs from "fs"
-import * as fse from "fs-extra/esm"
+import * as fse from "fs-extra"
 import * as chokidar from "chokidar"
 import p from "path"
 import AdmZip from "adm-zip"
 import pino, { Logger } from "pino"
-import matter, { GrayMatterFile } from "gray-matter"
+import matter from "gray-matter"
 import remarkGfm from "remark-gfm"
 import remarkUnwrapImages from "remark-unwrap-images"
 import rehypeSlug from "rehype-slug"
@@ -15,12 +15,16 @@ import slugify from "slugify"
 import { execFileSync } from "child_process"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
-import * as utils from "./utils.mjs"
+import { VFile } from "vfile"
+import * as utils from "./utils.mts"
 
-type VisitedNodes = {
+type RemarkVisitedNodes = {
   images: any[],
   links: any[],
 }
+
+type RehypeVisitedNodes = { headings: any[] }
+
 
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
@@ -33,9 +37,18 @@ const GODOT_PRACTICE_BUILD = ["addons", "gdquest_practice_framework", "build.gd"
 const GODOT_PROJECT_FILE = "project.godot"
 const GODOT_IGNORED = [".plugged", ".git", ".gitattributes", ".gitignore"]
 const SECTION_REGEX = /\d+\..+/
+const HTML_COMMENT_REGEX = /<\!--.*?-->/g
+const GDSCRIPT_CODEBLOCK_REGEX = /(```gdscript:.*)(_v\d+)(.gd)/g
+
+const SLUGIFY_OPTIONS = {
+  replacement: "-",
+  lower: true,
+  strict: true,
+}
 
 export const PRODUCTION = "production"
 
+let index = {}
 export let logger = pino({ name: "processCourse" })
 
 export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -50,9 +63,9 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
     } else if (eventName === "change") {
       if (p.basename(inPath) === INDEX_FILE) {
-        processSection(p.dirname(inPath), workingDirPath, contentDirPath, outputDirPath)
+        indexSection(p.dirname(inPath))
       } else if (p.extname(inPath) === MD_EXT) {
-        processMarkdownFile(inPath, workingDirPath, contentDirPath, outputDirPath)
+        processMarkdownFile(inPath, workingDirPath, outputDirPath)
       } else {
         processOtherFile(inPath, contentDirPath, outputDirPath)
       }
@@ -86,12 +99,12 @@ export function processAll(workingDirPath: string, contentDirPath: string, outpu
 }
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  processSections(workingDirPath, contentDirPath, outputDirPath)
+  indexSections(contentDirPath)
   processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
   processOtherFiles(contentDirPath, outputDirPath)
 }
 
-export function processSections(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+export function indexSections(contentDirPath: string) {
   const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
     {
@@ -101,21 +114,16 @@ export function processSections(workingDirPath: string, contentDirPath: string, 
     }
   )]
   for (const inDirPath of inDirPaths) {
-    processSection(inDirPath, workingDirPath, contentDirPath, outputDirPath)
+    indexSection(inDirPath)
   }
 }
 
-export async function processSection(inDirPath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+export function indexSection(inDirPath: string) {
   let content = ""
   const inFilePath = p.join(inDirPath, INDEX_FILE)
-  const outFilePath = p
-    .join(outputDirPath, p.relative(contentDirPath, inFilePath))
-    .replace(MD_EXT, JSON_EXT)
-
-  const inFileExists = utils.checkPathExists(inFilePath)
-  if (inFileExists && utils.isFileAOlderThanB(outFilePath, inFilePath)) {
+  if (utils.checkPathExists(inFilePath)) {
     content = fs.readFileSync(inFilePath, "utf8")
-  } else if (!inFileExists) {
+  } else {
     const defaultName = p.basename(inDirPath).replace(/^\d+\./, "")
     content = [
       "---",
@@ -126,43 +134,8 @@ export async function processSection(inDirPath: string, workingDirPath: string, 
     ].join("\n")
   }
 
-  const doWriteFile = content.length > 0
-  if (doWriteFile) {
-    const serialized = await getSerialized(
-      content,
-      [remarkProcessSection(inFilePath, workingDirPath)]
-    )
-    fse.ensureDirSync(p.dirname(outFilePath))
-    fs.writeFileSync(outFilePath, JSON.stringify(serialized))
-  }
-}
-
-export function remarkProcessSection(inFilePath: string, workingDirPath: string) {
-  const inDirPath = p.dirname(inFilePath)
-  return () => (tree, vFile) => {
-    const imagePathPrefix = p.posix.join(
-      COURSES_ROOT_PATH,
-      ...getSlugsUp(p.dirname(inDirPath)),
-      vFile.data.matter.slug,
-    )
-
-    if (vFile.data.matter.hasOwnProperty("thumbnail")) {
-      const filePath = p.join(inDirPath, vFile.data.matter.thumbnail)
-      utils.checkPathExists(
-        filePath,
-        `Couldn't find required '${filePath}' for '${inFilePath}' in frontmatter`
-      )
-      vFile.data.matter.thumbnail = p.posix.join(imagePathPrefix, vFile.data.matter.thumbnail)
-    }
-
-    let visited: VisitedNodes = {
-      images: [],
-      links: [],
-    }
-    visit(tree, visitor(visited))
-
-    rewriteImagePaths(visited.images, inFilePath, imagePathPrefix)
-    rewriteLinks(visited.links, inFilePath, workingDirPath)
+  if (content) {
+    index = { ...index, [inDirPath]: matter(content).data }
   }
 }
 
@@ -176,22 +149,44 @@ export function processMarkdownFiles(workingDirPath: string, contentDirPath: str
     }
   )
   for (const inFilePath of inFilePaths) {
-    processMarkdownFile(inFilePath, workingDirPath, contentDirPath, outputDirPath)
+    processMarkdownFile(inFilePath, workingDirPath, outputDirPath)
   }
 }
 
-export async function processMarkdownFile(inFilePath: string, workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  const outFilePath = p
-    .join(outputDirPath, p.relative(contentDirPath, inFilePath))
-    .replace(MD_EXT, JSON_EXT)
+export async function processMarkdownFile(inFilePath: string, workingDirPath: string, outputDirPath: string) {
+  const { data: frontmatter, content } = matter(fs.readFileSync(inFilePath, "utf8")
+    .replace(HTML_COMMENT_REGEX, "")
+    .replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3"))
+  if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
+    return
+  }
+  frontmatter.slug = slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
+
+  const slugPath = getSlugs(p.dirname(inFilePath))
+  const outFilePath = `${(p.join(outputDirPath, COURSES_ROOT_PATH, ...slugPath, frontmatter.slug))}${JSON_EXT}`
+
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
-    const serialized = await getSerialized(
-      fs.readFileSync(inFilePath, "utf8"),
-      [remarkProcessMarkdownFile(inFilePath, workingDirPath)]
+    let vFile = new VFile(content)
+    const serializedMDX = await getSerialized(
+      vFile,
+      frontmatter,
+      [remarkProcessMarkdownFile(inFilePath, workingDirPath)],
+      [rehypeProcessMarkdownFile],
     )
+
+    const url = p.posix.join(COURSE_ROOT_PATH, ...slugPath, frontmatter.slug)
     fse.ensureDirSync(p.dirname(outFilePath))
-    fs.writeFileSync(outFilePath, JSON.stringify(serialized))
+    fs.writeFileSync(outFilePath, JSON.stringify({
+      url,
+      slug: frontmatter.slug,
+      serializedMDX,
+      toc: vFile.data.toc,
+      free: frontmatter.free || false,
+      draft: frontmatter.draft || false,
+      prev: null,
+      next: null,
+    }))
   }
 }
 
@@ -199,17 +194,24 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
   return () => (tree) => {
     const imagePathPrefix = p.posix.join(
       COURSES_ROOT_PATH,
-      ...getSlugsUp(p.dirname(inFilePath)),
+      ...getSlugs(p.dirname(inFilePath)),
     )
-
-    let visited: VisitedNodes = {
+    let visited: RemarkVisitedNodes = {
       images: [],
       links: [],
     }
-    visit(tree, visitor(visited))
-
+    visit(tree, remarkVisitor(visited))
     rewriteImagePaths(visited.images, inFilePath, imagePathPrefix)
     rewriteLinks(visited.links, inFilePath, workingDirPath)
+  }
+}
+
+
+export function rehypeProcessMarkdownFile() {
+  return (tree, vFile) => {
+    let visited: RehypeVisitedNodes = { headings: [] }
+    visit(tree, rehypeVisitor(visited))
+    generateTOC(visited.headings, vFile)
   }
 }
 
@@ -235,39 +237,16 @@ export function processOtherFile(inFilePath: string, contentDirPath: string, out
   }
 }
 
-export function getSlugsUp(dirPath: string) {
-  type FrontMatter = GrayMatterFile<string> & {
-    data: {
-      title?: string,
-      slug?: string
-    }
-  }
-
-  let partialResult: string[] = []
-  while (true) {
-    const inFilePath = p.join(dirPath, INDEX_FILE)
+export function getSlugs(dirPath: string) {
+  let result: string[] = []
+  while (index.hasOwnProperty(dirPath)) {
+    result.push(index[dirPath].slug)
     dirPath = p.dirname(dirPath)
-
-    if (fs.existsSync(inFilePath)) {
-      const { data: frontmatter }: FrontMatter = matter(fs.readFileSync(inFilePath, "utf8"))
-      frontmatter.data
-      if (frontmatter.hasOwnProperty("slug")) {
-        partialResult.push(frontmatter.slug)
-      } else if (frontmatter.hasOwnProperty("title")) {
-        partialResult.push(slugify(frontmatter.title, {
-          replacement: "-",
-          lower: true,
-          strict: true,
-        }))
-      }
-    } else {
-      break
-    }
   }
-  return partialResult.reverse();
+  return result.reverse()
 }
 
-export function visitor(visited: VisitedNodes) {
+export function remarkVisitor(visited: RemarkVisitedNodes) {
   return (node) => {
     if (node.type === "image" || (node.type === "mdxJsxFlowElement" && node.name === "img")) {
       visited.images.push(node)
@@ -277,6 +256,14 @@ export function visitor(visited: VisitedNodes) {
       } catch {
         visited.links.push(node)
       }
+    }
+  }
+}
+
+export function rehypeVisitor(visited: RehypeVisitedNodes) {
+  return (node) => {
+    if (["h1", "h2", "h3"].includes(node.tagName)) {
+      visited.headings.push(node)
     }
   }
 }
@@ -318,6 +305,21 @@ export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: s
 
     utils.checkPathExists(checkFilePath, `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`)
     node.url = node.url.replace(MD_EXT, "")
+  }
+}
+
+export function generateTOC(nodes: any[], vFile) {
+  vFile.data.toc = []
+  for (const node of nodes) {
+    for (const child of node.children) {
+      if (child.type === "text") {
+        vFile.data.toc.push({
+          headingType: node.tagName,
+          title: child.value,
+          link: `#${node.properties.id}`,
+        })
+      }
+    }
   }
 }
 
@@ -373,9 +375,9 @@ export function extractTextBetweenAnchors(content: string, anchorName: string) {
   return match[1]
 }
 
-export async function getSerialized(source: string, remarkPlugins = [], rehypePlugins = []) {
-  const result = await serialize(
-    source,
+export async function getSerialized(vFile: VFile, frontmatter: Record<string, any>, remarkPlugins = [], rehypePlugins = []) {
+  return await serialize(
+    vFile,
     {
       mdxOptions: {
         development: process.env.NODE_ENV !== PRODUCTION,
@@ -392,11 +394,9 @@ export async function getSerialized(source: string, remarkPlugins = [], rehypePl
           ...rehypePlugins
         ],
       },
-      parseFrontmatter: true,
+      scope: frontmatter,
     },
   )
-  result.scope = result.frontmatter
-  return result
 }
 
 export function setLogger(newLogger: Logger) {

@@ -1,16 +1,8 @@
 import * as fs from "fs"
 import klawSync from "klaw-sync"
-import { logger, PRODUCTION } from "./index.mjs"
+import { logger, PRODUCTION } from "./index.mts"
 
-type KlawOptions = {
-  nodir?: boolean,
-  nofile?: boolean,
-  depthLimit?: number,
-  filter?: (param: { path: string, stat: fs.Stats }) => boolean,
-  traverseAll?: boolean,
-}
-
-export function fsFind(path: string, klawOptions: KlawOptions) {
+export function fsFind(path: string, klawOptions: klawSync.Options) {
   return klawSync(path, klawOptions).map(({ path }) => path) as string[]
 }
 
