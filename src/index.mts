@@ -16,6 +16,7 @@ import { execFileSync } from "child_process"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
 import { VFile } from "vfile"
+import { MDXRemoteSerializeResult } from "next-mdx-remote"
 import * as utils from "./utils.mts"
 
 type RemarkVisitedNodes = {
@@ -25,7 +26,42 @@ type RemarkVisitedNodes = {
 
 type RehypeVisitedNodes = { headings: any[] }
 
-type Cache = Record<string, { frontmatter: any, content: string }>
+type Index = {
+  frontmatter: any,
+  content: string,
+}
+type LessonTOC = {
+  headingType: "h1" | "h2" | "h3",
+  title: string,
+  link: string,
+}
+type LessonPrevNext = {
+  title: string,
+  url: string,
+}
+type Lesson = {
+  serializedMDX: MDXRemoteSerializeResult,
+  url: string,
+  title: string,
+  slug: string,
+  toc: LessonTOC[],
+  free: boolean,
+  draft: boolean,
+  prev?: LessonPrevNext,
+  next?: LessonPrevNext,
+}
+type SectionLesson = {
+  path: string,
+  content: Lesson,
+}
+type Section = {
+  title: string,
+  lessons: SectionLesson[],
+}
+type Cache = {
+  index: Record<string, Index>,
+  lessons: Record<string, Lesson>,
+}
 
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
@@ -50,7 +86,10 @@ const SLUGIFY_OPTIONS = {
 
 export const PRODUCTION = "production"
 
-let cache: Cache = {}
+let cache: Cache = {
+  index: {},
+  lessons: {},
+}
 export let logger = pino({ name: "processCourse" })
 
 export function watchAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -59,7 +98,7 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 }
 
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  if (utils.isObjectEmpty(cache)) {
+  if (utils.isObjectEmpty(cache.index)) {
     indexSections(contentDirPath)
   }
 
@@ -67,14 +106,16 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
   watcher.on("all", (eventName, inPath) => {
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
+      // TODO: remove cache data
+      if (p.basename(inPath) === IN_INDEX_FILE) {
+        delete cache.index[p.dirname(inPath)]
+      }
     } else if (eventName === "change") {
       if (p.basename(inPath) === IN_INDEX_FILE) {
         indexSection(p.dirname(inPath))
       } else if (p.extname(inPath) === MD_EXT) {
-        processMarkdownFile(inPath, workingDirPath, outputDirPath).then(
-          () => {
-            processFinal(contentDirPath, outputDirPath)
-          })
+        processMarkdownFile(inPath, workingDirPath, outputDirPath)
+          .then(() => { processFinal(contentDirPath, outputDirPath) })
       } else {
         processOtherFile(inPath, contentDirPath, outputDirPath)
       }
@@ -109,9 +150,8 @@ export function processAll(workingDirPath: string, contentDirPath: string, outpu
 
 export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
-  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath).then(
-    () => processFinal(contentDirPath, outputDirPath)
-  )
+  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
+    .then(() => processFinal(contentDirPath, outputDirPath))
   processOtherFiles(contentDirPath, outputDirPath)
 }
 
@@ -148,50 +188,46 @@ export function indexSection(inDirPath: string) {
   if (inFileContent !== "") {
     const { data: frontmatter, content } = matter(inFileContent)
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
-    cache = { ...cache, [inDirPath]: { frontmatter, content } }
+    cache.index[inDirPath] = { frontmatter, content }
   }
 }
 
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
-  const { frontmatter, content } = cache[contentDirPath]
-  const inFilePath = p.join(contentDirPath, IN_INDEX_FILE)
+  const { frontmatter, content } = cache.index[contentDirPath]
   const outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
 
-  const sections = getSections(outputDirPath)
+  const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
 
-  const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
-  if (doWriteFile) {
-    const toc = generateCourseTOC(sections)
-    const thumbnailPath = p.resolve(contentDirPath, frontmatter.thumbnail)
-    fse.ensureDirSync(p.dirname(outFilePath))
-    fs.writeFileSync(outFilePath, JSON.stringify({
-      title: frontmatter.title,
-      slug: frontmatter.slug,
-      description: frontmatter.description,
-      tagline: frontmatter.tagline,
-      salesPoints: frontmatter.salesPoints,
-      lastUpdated: frontmatter.lastUpdated,
-      godotVersion: frontmatter.godotVersion,
-      courseDuration: frontmatter.courseDuration,
-      thumbnail: p.posix.join(COURSES_ROOT_PATH, frontmatter.slug, p.posix.normalize(p.relative(contentDirPath, thumbnailPath))),
-      thumbnailPlaceholder: await utils.downscaleImage(thumbnailPath),
-      video: frontmatter.video,
-      draft: frontmatter.draft || false,
-      price: frontmatter.price || 0,
-      tags: (frontmatter.tags || []).map((tag: string) => ({ name: tag, slug: slugify(tag, SLUGIFY_OPTIONS), })),
-      order: frontmatter.order || 0, // for sorting courses in browse page
-      difficulty: frontmatter.difficulty || 1, // for sorting courses in browse page
-      releaseDate: frontmatter.releaseDate || new Date("2000-01-01").toString(),
-      saleEnd: frontmatter.saleEnd,
-      saleCoupon: frontmatter.saleCoupon,
-      saleDiscount: frontmatter.saleDiscount || 0,
-      banner: frontmatter.banner,
-      copy: await getSerialized(new VFile(content), frontmatter),
-      firstLessonUrl: p.posix.join(COURSE_ROOT_PATH, frontmatter.slug, toc[0].slug, toc[0].lessons[0].slug),
-      toc,
-    }))
-  }
+  const toc = generateCourseTOC(sections)
+  const thumbnailPath = p.resolve(contentDirPath, frontmatter.thumbnail)
+  fse.ensureDirSync(p.dirname(outFilePath))
+  fs.writeFileSync(outFilePath, JSON.stringify({
+    title: frontmatter.title,
+    slug: frontmatter.slug,
+    description: frontmatter.description,
+    tagline: frontmatter.tagline,
+    salesPoints: frontmatter.salesPoints,
+    lastUpdated: frontmatter.lastUpdated,
+    godotVersion: frontmatter.godotVersion,
+    courseDuration: frontmatter.courseDuration,
+    thumbnail: p.posix.join(COURSES_ROOT_PATH, frontmatter.slug, p.posix.normalize(p.relative(contentDirPath, thumbnailPath))),
+    thumbnailPlaceholder: await utils.downscaleImage(thumbnailPath),
+    video: frontmatter.video,
+    draft: frontmatter.draft || false,
+    price: frontmatter.price || 0,
+    tags: (frontmatter.tags || []).map((tag: string) => ({ name: tag, slug: slugify(tag, SLUGIFY_OPTIONS), })),
+    order: frontmatter.order || 0, // for sorting courses in browse page
+    difficulty: frontmatter.difficulty || 1, // for sorting courses in browse page
+    releaseDate: frontmatter.releaseDate || new Date("2000-01-01").toString(),
+    saleEnd: frontmatter.saleEnd,
+    saleCoupon: frontmatter.saleCoupon,
+    saleDiscount: frontmatter.saleDiscount || 0,
+    banner: frontmatter.banner,
+    copy: await getSerialized(new VFile(content), frontmatter),
+    firstLessonUrl: toc[0].lessons[0].url,
+    toc,
+  }))
 }
 
 export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -214,8 +250,8 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
     return
   }
-  const slugs = getSlugs(p.dirname(inFilePath))
-  const outFilePath = `${p.join(outputDirPath, ...slugs.slice(1), frontmatter.slug)}${JSON_EXT}`
+  const slugs = getMarkdownFileSlugs(frontmatter.slug, inFilePath)
+  const outFilePath = getMarkdownFileOutPath(slugs, outputDirPath)
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     let vFile = new VFile(content)
@@ -225,17 +261,21 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       [remarkProcessMarkdownFile(inFilePath, workingDirPath)],
       [rehypeProcessMarkdownFile],
     )
-
-    fse.ensureDirSync(p.dirname(outFilePath))
-    fs.writeFileSync(outFilePath, JSON.stringify({
+    const out: Lesson = {
       serializedMDX,
-      url: p.posix.join(COURSE_ROOT_PATH, ...slugs, frontmatter.slug),
+      url: p.posix.join(COURSE_ROOT_PATH, ...slugs),
       title: frontmatter.title,
       slug: frontmatter.slug,
-      toc: vFile.data.toc,
+      toc: vFile.data.toc as LessonTOC[],
       free: frontmatter.free || false,
       draft: frontmatter.draft || false,
-    }))
+    }
+
+    fse.ensureDirSync(p.dirname(outFilePath))
+    fs.writeFileSync(outFilePath, JSON.stringify(out))
+    cache.lessons[inFilePath] = out
+  } else if (!cache.lessons.hasOwnProperty(outFilePath)) {
+    cache.lessons[inFilePath] = JSON.parse(fs.readFileSync(outFilePath, "utf8"))
   }
 }
 
@@ -290,11 +330,19 @@ export function processOtherFile(inFilePath: string, contentDirPath: string, out
 
 export function getSlugs(dirPath: string) {
   let result: string[] = []
-  while (cache.hasOwnProperty(dirPath)) {
-    result.push(cache[dirPath].frontmatter.slug)
+  while (cache.index.hasOwnProperty(dirPath)) {
+    result.push(cache.index[dirPath].frontmatter.slug)
     dirPath = p.dirname(dirPath)
   }
   return result.reverse()
+}
+
+export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
+  return [...getSlugs(p.dirname(inFilePath)).slice(1), slug]
+}
+
+export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
+  return `${p.join(outputDirPath, ...slugs)}${JSON_EXT}`
 }
 
 export function remarkVisitor(visited: RemarkVisitedNodes) {
@@ -374,29 +422,23 @@ export function generateLessonTOC(nodes: any[], vFile) {
   }
 }
 
-export function getSections(outputDirPath: string) {
-  return Object.values(cache).slice(1)
-    .map((data) => ({
+export function getCacheSections(outputDirPath: string) {
+  return Object.entries(cache.index).slice(1)
+    .map(([inDirPath, data]) => ({
       title: data.frontmatter.title,
-      slug: data.frontmatter.slug,
-      lessons: utils.fsFind(
-        p.join(outputDirPath, data.frontmatter.slug),
-        {
-          nodir: true,
-          traverseAll: true,
-          filter: ({ path }) => p.extname(path) === JSON_EXT,
-        },
-      ).map((path: string) => ({
-        path,
-        content: JSON.parse(fs.readFileSync(path, "utf8")),
-      }))
+      lessons: Object.entries(cache.lessons)
+        .filter(([path]) => path.startsWith(inDirPath))
+        .map(([path, lesson]) => ({
+          path: getMarkdownFileOutPath(getMarkdownFileSlugs(lesson.slug, path), outputDirPath),
+          content: lesson
+        }))
     }))
 }
 
-export function generateCourseTOC(sections: any[]) {
+export function generateCourseTOC(sections: Section[]) {
   return sections.map((section) => ({
     ...section,
-    lessons: section.lessons.map((lesson: any) => ({
+    lessons: section.lessons.map((lesson) => ({
       title: lesson.content.title,
       slug: lesson.content.slug,
       url: lesson.content.url,
@@ -406,7 +448,7 @@ export function generateCourseTOC(sections: any[]) {
   }))
 }
 
-export function updateLessonsPrevNext(sections: any[]) {
+export function updateLessonsPrevNext(sections: Section[]) {
   sections.forEach((section, sectionIndex) =>
     section.lessons.forEach((lesson, lessonIndex: number) => {
       let prevLesson = section.lessons[lessonIndex - 1] || null
