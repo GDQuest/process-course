@@ -51,7 +51,7 @@ export async function runCli() {
     C: ["watchContent", "run in watch content mode"],
     G: ["watchGodot", "run in watch Godot projects mode"],
     a: ["processAll", "process all (content & godot projects)"],
-    b: ["buildRelease", "build zip release. Implies '-a'"],
+    b: ["buildRelease", "build zip release. Implies '-a' and ignores the gdschool path"],
     c: ["processContent", "process content"],
     g: ["processGodot", "process godot projects"],
     h: ["help", "this text"],
@@ -60,7 +60,7 @@ export async function runCli() {
 
   const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
   const contentDirPath = p.join(workingDirPath, "content")
-  const outputDirPath = args.rest.length == 2 ? fs.realpathSync(args.rest[1]) : p.join(workingDirPath, "build")
+  const outputDirPath = !args.buildRelease && args.rest.length == 2 ? fs.realpathSync(args.rest[1]) : p.join(workingDirPath, "build")
 
   if (args.help) {
     help(args)
