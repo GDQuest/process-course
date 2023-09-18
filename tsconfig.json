@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "target": "es2022",
+    "moduleResolution": "bundler",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
@@ -7,8 +9,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "allowImportingTsExtensions": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

@@ -17,7 +17,7 @@ import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
 import { VFile } from "vfile"
 import { MDXRemoteSerializeResult } from "next-mdx-remote"
-import * as utils from "./utils.mts"
+import * as utils from "./utils.mjs"
 
 type RemarkVisitedNodes = {
   images: any[],
@@ -131,6 +131,7 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
           filter: ({ path }) => p.extname(path) === MD_EXT
         }).forEach((path) => delete cache.lessons[path])
       }
+      logger.debug(`Removed ${inPath}`)
     } else if (eventName === "change") {
       if (p.basename(inPath) === IN_INDEX_FILE) {
         indexSection(p.dirname(inPath))
@@ -230,6 +231,7 @@ export function indexSection(inDirPath: string) {
     const { data: frontmatter, content } = matter(inFileContent)
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
     cache.index[inDirPath] = { frontmatter, content }
+    logger.debug(`Indexed ${inFilePath}`)
   }
 }
 
@@ -269,6 +271,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     firstLessonUrl: toc[0].lessons[0].url,
     toc,
   }))
+  logger.debug(`Processed ${outFilePath}`)
 
   outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
   fs.writeFileSync(outFilePath, JSON.stringify(
@@ -284,6 +287,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
       }
     })
   ))
+  logger.debug(`Processed ${outFilePath}`)
 }
 
 export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -333,11 +337,13 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
       out
     }
+    logger.debug(`Processed ${outFilePath}`)
   } else if (!cache.lessons.hasOwnProperty(inFilePath)) {
     cache.lessons[inFilePath] = {
-      in: content,
+      in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
       out: JSON.parse(fs.readFileSync(outFilePath, "utf8")),
     }
+    logger.debug(`Cached ${outFilePath}`)
   }
 }
 
@@ -574,7 +580,7 @@ export function processGodotProject(godotProjectDirPath: string, outputDirPath: 
   if (godotProjectFilePaths.length > 0) {
     const godotPracticeBuildPath = p.join(godotProjectDirPath, ...GODOT_PRACTICE_BUILD)
     if (fs.existsSync(godotPracticeBuildPath)) {
-      logger.info(execFileSync(GODOT_EXE, ["--path", godotProjectDirPath, "--headless", "--script", godotPracticeBuildPath]).toString("utf8"))
+      logger.debug(execFileSync(GODOT_EXE, ["--path", godotProjectDirPath, "--headless", "--script", godotPracticeBuildPath]).toString("utf8"))
     }
 
     const zip = new AdmZip()

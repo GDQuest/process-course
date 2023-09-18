@@ -1,7 +1,8 @@
+#!/usr/bin/env node
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mts"
+import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mjs"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -75,6 +76,10 @@ export async function runCli() {
     args.processAll = true
     args.processContent = false
     args.processGodot = false
+  }
+
+  if (args.watchContent) {
+    args.processContent = true
   }
 
   if (args.processAll && !(args.processContent || args.processGodot)) {

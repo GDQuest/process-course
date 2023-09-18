@@ -2,7 +2,7 @@ import * as fs from "fs"
 import p from "path"
 import klawSync from "klaw-sync"
 import lqip from 'lqip-modern'
-import { logger, PRODUCTION } from "./index.mts"
+import { logger, PRODUCTION } from "./index.mjs"
 
 export function fsFind(path: string, klawOptions: klawSync.Options) {
   return klawSync(path, klawOptions).map(({ path }) => path) as string[]
