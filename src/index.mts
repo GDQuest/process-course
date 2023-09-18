@@ -51,16 +51,21 @@ type Lesson = {
   next?: LessonPrevNext,
 }
 type SectionLesson = {
-  path: string,
-  content: Lesson,
+  outPath: string,
+  in: string,
+  out: Lesson,
 }
 type Section = {
   title: string,
   lessons: SectionLesson[],
 }
+type CacheLessonEntry = {
+  in: string,
+  out: Lesson,
+}
 type Cache = {
   index: Record<string, Index>,
-  lessons: Record<string, Lesson>,
+  lessons: Record<string, CacheLessonEntry>,
 }
 
 const COURSE_ROOT_PATH = "/course"
@@ -70,6 +75,7 @@ const MD_EXT = ".md"
 const JSON_EXT = ".json"
 const IN_INDEX_FILE = `_index${MD_EXT}`
 const OUT_INDEX_FILE = `index${JSON_EXT}`
+const OUT_INDEX_SEARCH_FILE = `index-search${JSON_EXT}`
 const GODOT_EXE = "godot"
 const GODOT_PRACTICE_BUILD = ["addons", "gdquest_practice_framework", "build.gd"]
 const GODOT_PROJECT_FILE = "project.godot"
@@ -106,9 +112,16 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
   watcher.on("all", (eventName, inPath) => {
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
-      // TODO: remove cache data
       if (p.basename(inPath) === IN_INDEX_FILE) {
         delete cache.index[p.dirname(inPath)]
+      } else if (p.extname(inPath) === MD_EXT) {
+        delete cache.lessons[inPath]
+      } else if (eventName === "unlinkDir") {
+        utils.fsFind(inPath, {
+          nodir: true,
+          traverseAll: true,
+          filter: ({ path }) => p.extname(path) === MD_EXT
+        }).forEach((path) => delete cache.lessons[path])
       }
     } else if (eventName === "change") {
       if (p.basename(inPath) === IN_INDEX_FILE) {
@@ -194,7 +207,7 @@ export function indexSection(inDirPath: string) {
 
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache.index[contentDirPath]
-  const outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
+  let outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
 
   const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
@@ -228,6 +241,21 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     firstLessonUrl: toc[0].lessons[0].url,
     toc,
   }))
+
+  outFilePath = p.join(outputDirPath, OUT_INDEX_SEARCH_FILE)
+  fs.writeFileSync(outFilePath, JSON.stringify(
+    Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
+      const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(lesson.out.slug, inFilePath)
+      return {
+        courseSlug,
+        sectionSlug,
+        slug,
+        url: lesson.out.url,
+        title: lesson.out.title,
+        text: lesson.in,
+      }
+    })
+  ))
 }
 
 export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -273,9 +301,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
 
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(out))
-    cache.lessons[inFilePath] = out
-  } else if (!cache.lessons.hasOwnProperty(outFilePath)) {
-    cache.lessons[inFilePath] = JSON.parse(fs.readFileSync(outFilePath, "utf8"))
+    cache.lessons[inFilePath] = { in: content, out }
+  } else if (!cache.lessons.hasOwnProperty(inFilePath)) {
+    cache.lessons[inFilePath] = {
+      in: content,
+      out: JSON.parse(fs.readFileSync(outFilePath, "utf8")),
+    }
   }
 }
 
@@ -338,11 +369,11 @@ export function getSlugs(dirPath: string) {
 }
 
 export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
-  return [...getSlugs(p.dirname(inFilePath)).slice(1), slug]
+  return [...getSlugs(p.dirname(inFilePath)), slug]
 }
 
 export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
-  return `${p.join(outputDirPath, ...slugs)}${JSON_EXT}`
+  return `${p.join(outputDirPath, ...slugs.slice(1))}${JSON_EXT}`
 }
 
 export function remarkVisitor(visited: RemarkVisitedNodes) {
@@ -429,8 +460,9 @@ export function getCacheSections(outputDirPath: string) {
       lessons: Object.entries(cache.lessons)
         .filter(([path]) => path.startsWith(inDirPath))
         .map(([path, lesson]) => ({
-          path: getMarkdownFileOutPath(getMarkdownFileSlugs(lesson.slug, path), outputDirPath),
-          content: lesson
+          outPath: getMarkdownFileOutPath(getMarkdownFileSlugs(lesson.out.slug, path), outputDirPath),
+          in: lesson.in,
+          out: lesson.out,
         }))
     }))
 }
@@ -439,11 +471,11 @@ export function generateCourseTOC(sections: Section[]) {
   return sections.map((section) => ({
     ...section,
     lessons: section.lessons.map((lesson) => ({
-      title: lesson.content.title,
-      slug: lesson.content.slug,
-      url: lesson.content.url,
-      draft: lesson.content.draft,
-      free: lesson.content.free,
+      title: lesson.out.title,
+      slug: lesson.out.slug,
+      url: lesson.out.url,
+      draft: lesson.out.draft,
+      free: lesson.out.free,
     })),
   }))
 }
@@ -464,16 +496,16 @@ export function updateLessonsPrevNext(sections: Section[]) {
         nextLesson = nextSection.lessons[0]
       }
 
-      lesson.content.prev = null
+      lesson.out.prev = null
       if (prevLesson) {
-        lesson.content.prev = { title: prevLesson.content.title, url: prevLesson.content.url }
+        lesson.out.prev = { title: prevLesson.out.title, url: prevLesson.out.url }
       }
 
-      lesson.content.next = null
+      lesson.out.next = null
       if (nextLesson) {
-        lesson.content.next = { title: nextLesson.content.title, url: nextLesson.content.url }
+        lesson.out.next = { title: nextLesson.out.title, url: nextLesson.out.url }
       }
-      fs.writeFileSync(lesson.path, JSON.stringify(lesson.content))
+      fs.writeFileSync(lesson.outPath, JSON.stringify(lesson.out))
     })
   )
 }
@@ -553,7 +585,6 @@ export async function getSerialized(vFile: VFile, frontmatter: Record<string, an
     },
   )
 }
-
 
 export function getMatter(source: string) {
   return matter(source
