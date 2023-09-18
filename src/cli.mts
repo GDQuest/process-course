@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mts"
+import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mts"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -47,13 +47,15 @@ export function runCli() {
   }))
 
   const args = readArgs({
-    a: ["processAll", "process all (content & godot projects)"],
-    c: ["processContent", "process content"],
-    g: ["processGodot", "process godot projects"],
-    h: ["help", "this text"],
     A: ["watchAll", "run in watch mode"],
     C: ["watchContent", "run in watch content mode"],
     G: ["watchGodot", "run in watch Godot projects mode"],
+    a: ["processAll", "process all (content & godot projects)"],
+    b: ["buildRelease", "build zip release. Implies '-a'"],
+    c: ["processContent", "process content"],
+    g: ["processGodot", "process godot projects"],
+    h: ["help", "this text"],
+    v: ["verbose", "set verbosity"],
   })
 
   const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
@@ -63,6 +65,14 @@ export function runCli() {
   if (args.help) {
     help(args)
     process.exit(0)
+  }
+
+  if (args.verbose) {
+    logger.level = "debug"
+  }
+
+  if (args.buildRelease || args.watchAll) {
+    args.processAll = true
   }
 
   if (args.processAll && !(args.processContent || args.processGodot)) {
@@ -75,6 +85,12 @@ export function runCli() {
 
   if (args.processGodot) {
     processGodotProjects(workingDirPath, outputDirPath)
+  }
+
+  if (args.buildRelease) {
+    const releasesDirPath = p.join(workingDirPath, "content-releases")
+    buildRelease(workingDirPath, outputDirPath, releasesDirPath)
+    process.exit(0)
   }
 
   if (args.watchAll && !(args.watchContent || args.watchGodot)) {
@@ -119,7 +135,7 @@ export function readArgs(expand?: Record<string, [string, string]>) {
         path: process.argv[1],
         options: expand && Object
           .entries(expand)
-          .map(([abbr, [opt, desc]]) => `-${abbr}, --${opt}\t${desc}`) || []
+          .map(([abbr, [opt, desc]]) => `-${abbr}, --${opt.padEnd(16)}${desc}`) || []
       },
       rest: [],
     } as Args

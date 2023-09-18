@@ -110,6 +110,10 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
 
   const watcher = chokidar.watch(contentDirPath, { ignored: "*~" })
   watcher.on("all", (eventName, inPath) => {
+    if (["add", "addDir"].includes(eventName)) {
+      return
+    }
+    console.log(eventName, inPath)
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
       if (p.basename(inPath) === IN_INDEX_FILE) {
@@ -150,7 +154,10 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
       godotProjectDirPath,
       { ignored: ["*~", ...GODOT_IGNORED.map((path) => `**/${path}`)] }
     )
-    watcher.on("all", () => {
+    watcher.on("all", (eventName) => {
+      if (["add", "addDir"].includes(eventName)) {
+        return
+      }
       processGodotProject(godotProjectDirPath, outputDirPath)
     })
   }
@@ -180,6 +187,23 @@ export function indexSections(contentDirPath: string) {
   for (const inDirPath of inDirPaths) {
     indexSection(inDirPath)
   }
+}
+
+export function buildRelease(
+  workingDirPath: string,
+  outputDirPath: string,
+  releasesDirPath: string,
+) {
+  const slug = Object.values(cache.index)[0].frontmatter.slug
+  const outFilePath = p.join(
+    releasesDirPath,
+    `${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}.zip`
+  );
+  logger.debug(`Saving the processed course ${slug} at ${outFilePath}`);
+  fse.ensureDirSync(releasesDirPath);
+  const zip = new AdmZip()
+  zip.addLocalFolder(outputDirPath)
+  zip.writeZip(outFilePath)
 }
 
 export function indexSection(inDirPath: string) {

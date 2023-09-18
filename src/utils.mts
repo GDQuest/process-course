@@ -1,4 +1,5 @@
 import * as fs from "fs"
+import p from "path"
 import klawSync from "klaw-sync"
 import lqip from 'lqip-modern'
 import { logger, PRODUCTION } from "./index.mts"
@@ -42,4 +43,26 @@ export async function downscaleImage(inFilePath: string) {
       logger.warn(error.message)
     }
   }
+}
+
+export function getDate() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = (today.getMonth() + 1).toString().padStart(2, '0')
+  const day = today.getDate().toString().padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function getGitHash(path: string) {
+  const gitPath = p.join(path, '.git')
+  const gitHeadPath = p.join(gitPath, 'HEAD')
+  if (fs.existsSync(gitHeadPath)) {
+    const rev = fs.readFileSync(gitHeadPath).toString().trim().split(/.*[: ]/).slice(-1)[0];
+    if (rev.indexOf('/') === -1) {
+      return rev;
+    } else {
+      return fs.readFileSync(p.join(gitPath, rev)).toString().trim();
+    }
+  }
+  return ""
 }
