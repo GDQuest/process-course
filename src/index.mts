@@ -70,9 +70,11 @@ type Cache = {
 
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
+const JSON_DIR = "json"
 const PUBLIC_DIR = "public"
 const MD_EXT = ".md"
 const JSON_EXT = ".json"
+const ZIP_EXT = ".zip"
 const IN_INDEX_FILE = `_index${MD_EXT}`
 const OUT_INDEX_FILE = `index${JSON_EXT}`
 const OUT_INDEX_SEARCH_FILE = `index-search${JSON_EXT}`
@@ -83,6 +85,8 @@ const GODOT_IGNORED = [".plugged", ".git", ".gitattributes", ".gitignore"]
 const SECTION_REGEX = /\d+\..+/
 const HTML_COMMENT_REGEX = /<\!--.*?-->/g
 const GDSCRIPT_CODEBLOCK_REGEX = /(```gdscript:.*)(_v\d+)(.gd)/g
+const CODEBLOCK_REGEX = /```[a-z]*\n[\s\S]*?\n```/g
+const OVERLY_LINE_BREAKS_REGEX = /\n{3,}/g
 
 const SLUGIFY_OPTIONS = {
   replacement: "-",
@@ -113,7 +117,6 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
     if (["add", "addDir"].includes(eventName)) {
       return
     }
-    console.log(eventName, inPath)
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
       if (p.basename(inPath) === IN_INDEX_FILE) {
@@ -163,15 +166,15 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
   }
 }
 
-export function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  processContent(workingDirPath, contentDirPath, outputDirPath)
+export async function processAll(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+  await processContent(workingDirPath, contentDirPath, outputDirPath)
   processGodotProjects(workingDirPath, outputDirPath)
 }
 
-export function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
+export async function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
-  processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
-    .then(() => processFinal(contentDirPath, outputDirPath))
+  await processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
+  processFinal(contentDirPath, outputDirPath)
   processOtherFiles(contentDirPath, outputDirPath)
 }
 
@@ -197,7 +200,7 @@ export function buildRelease(
   const slug = Object.values(cache.index)[0].frontmatter.slug
   const outFilePath = p.join(
     releasesDirPath,
-    `${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}.zip`
+    `${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}${ZIP_EXT}`
   );
   logger.debug(`Saving the processed course ${slug} at ${outFilePath}`);
   fse.ensureDirSync(releasesDirPath);
@@ -231,7 +234,7 @@ export function indexSection(inDirPath: string) {
 
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache.index[contentDirPath]
-  let outFilePath = p.join(outputDirPath, OUT_INDEX_FILE)
+  let outFilePath = p.join(outputDirPath, JSON_DIR, frontmatter.slug, OUT_INDEX_FILE)
 
   const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
@@ -266,7 +269,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     toc,
   }))
 
-  outFilePath = p.join(outputDirPath, OUT_INDEX_SEARCH_FILE)
+  outFilePath = p.join(outputDirPath, JSON_DIR, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
   fs.writeFileSync(outFilePath, JSON.stringify(
     Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
       const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(lesson.out.slug, inFilePath)
@@ -325,7 +328,10 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
 
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(out))
-    cache.lessons[inFilePath] = { in: content, out }
+    cache.lessons[inFilePath] = {
+      in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
+      out
+    }
   } else if (!cache.lessons.hasOwnProperty(inFilePath)) {
     cache.lessons[inFilePath] = {
       in: content,
@@ -375,7 +381,7 @@ export function processOtherFiles(contentDirPath: string, outputDirPath: string)
 }
 
 export function processOtherFile(inFilePath: string, contentDirPath: string, outputDirPath: string) {
-  const outFilePath = p.join(outputDirPath, p.relative(contentDirPath, inFilePath))
+  const outFilePath = p.join(outputDirPath, PUBLIC_DIR, p.relative(contentDirPath, inFilePath))
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     fse.ensureDirSync(p.dirname(outFilePath))
@@ -397,7 +403,7 @@ export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
 }
 
 export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
-  return `${p.join(outputDirPath, ...slugs.slice(1))}${JSON_EXT}`
+  return `${p.join(outputDirPath, JSON_DIR, ...slugs)}${JSON_EXT}`
 }
 
 export function remarkVisitor(visited: RemarkVisitedNodes) {
@@ -549,7 +555,7 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
 }
 
 export function processGodotProject(godotProjectDirPath: string, outputDirPath: string) {
-  const outDirPath = p.join(outputDirPath, PUBLIC_DIR, `${p.basename(godotProjectDirPath)}.zip`)
+  const outDirPath = p.join(outputDirPath, PUBLIC_DIR, `${p.basename(godotProjectDirPath)}${ZIP_EXT}`)
   const godotProjectFilePaths = utils.fsFind(
     godotProjectDirPath,
     {

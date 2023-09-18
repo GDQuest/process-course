@@ -32,7 +32,7 @@ function help(args: Args) {
   ].join("\n"))
 }
 
-export function runCli() {
+export async function runCli() {
   setLogger(pino({
     name: "processCourse",
     level: "info",
@@ -73,14 +73,16 @@ export function runCli() {
 
   if (args.buildRelease || args.watchAll) {
     args.processAll = true
+    args.processContent = false
+    args.processGodot = false
   }
 
   if (args.processAll && !(args.processContent || args.processGodot)) {
-    processAll(workingDirPath, contentDirPath, outputDirPath)
+    await processAll(workingDirPath, contentDirPath, outputDirPath)
   }
 
   if (args.processContent) {
-    processContent(workingDirPath, contentDirPath, outputDirPath)
+    await processContent(workingDirPath, contentDirPath, outputDirPath)
   }
 
   if (args.processGodot) {
@@ -90,7 +92,6 @@ export function runCli() {
   if (args.buildRelease) {
     const releasesDirPath = p.join(workingDirPath, "content-releases")
     buildRelease(workingDirPath, outputDirPath, releasesDirPath)
-    process.exit(0)
   }
 
   if (args.watchAll && !(args.watchContent || args.watchGodot)) {
