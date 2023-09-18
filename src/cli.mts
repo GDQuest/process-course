@@ -23,12 +23,14 @@ function help(args: Args) {
     "Processes the course content into the format compatible with the new GDSchool platform.",
     "",
     "USAGE:",
-    `${p.basename(args._.path)} [options] [path]`,
+    `${p.basename(args._.path)} option [options] [workingDirPath] [gdschoolDirPath]`,
+    "",
+    "If 'workingDirPath' isn't specified, the current directory will be used.",
     "",
     "options:",
     `  ${args._.options.join("\n  ")}`,
     "",
-    "if path isn't specified, the current directory will be used",
+    "NOTE: At least one option needs to be provided.",
     "",
   ].join("\n"))
 }
@@ -63,7 +65,7 @@ export async function runCli() {
   const contentDirPath = p.join(workingDirPath, "content")
   const outputDirPath = !args.buildRelease && args.rest.length == 2 ? fs.realpathSync(args.rest[1]) : p.join(workingDirPath, "build")
 
-  if (args.help) {
+  if (args.help || Object.keys(args).filter((k) => !["_", "rest"].includes(k)).length === 0) {
     help(args)
     process.exit(0)
   }
