@@ -70,6 +70,7 @@ type Cache = {
 
 const COURSE_ROOT_PATH = "/course"
 const COURSES_ROOT_PATH = "/courses"
+const CONTENT_DIR = "content"
 const JSON_DIR = "json"
 const PUBLIC_DIR = "public"
 const MD_EXT = ".md"
@@ -197,13 +198,13 @@ export function buildRelease(
   outputDirPath: string,
   releasesDirPath: string,
 ) {
-  const slug = Object.values(cache.index)[0].frontmatter.slug
+  const slug = getCacheCourseSlug()
   const outFilePath = p.join(
     releasesDirPath,
     `${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}${ZIP_EXT}`
-  );
-  logger.debug(`Saving the processed course ${slug} at ${outFilePath}`);
-  fse.ensureDirSync(releasesDirPath);
+  )
+  logger.debug(`Saving the processed course ${slug} at ${outFilePath}`)
+  fse.ensureDirSync(releasesDirPath)
   const zip = new AdmZip()
   zip.addLocalFolder(outputDirPath)
   zip.writeZip(outFilePath)
@@ -234,7 +235,7 @@ export function indexSection(inDirPath: string) {
 
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache.index[contentDirPath]
-  let outFilePath = p.join(outputDirPath, JSON_DIR, frontmatter.slug, OUT_INDEX_FILE)
+  let outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_FILE)
 
   const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
@@ -269,7 +270,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     toc,
   }))
 
-  outFilePath = p.join(outputDirPath, JSON_DIR, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
+  outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
   fs.writeFileSync(outFilePath, JSON.stringify(
     Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
       const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(lesson.out.slug, inFilePath)
@@ -381,7 +382,8 @@ export function processOtherFiles(contentDirPath: string, outputDirPath: string)
 }
 
 export function processOtherFile(inFilePath: string, contentDirPath: string, outputDirPath: string) {
-  const outFilePath = p.join(outputDirPath, PUBLIC_DIR, p.relative(contentDirPath, inFilePath))
+  const slug = getCacheCourseSlug()
+  const outFilePath = p.join(outputDirPath, PUBLIC_DIR, COURSES_ROOT_PATH, slug, p.relative(contentDirPath, inFilePath))
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     fse.ensureDirSync(p.dirname(outFilePath))
@@ -403,7 +405,7 @@ export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
 }
 
 export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
-  return `${p.join(outputDirPath, JSON_DIR, ...slugs)}${JSON_EXT}`
+  return `${p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, ...slugs)}${JSON_EXT}`
 }
 
 export function remarkVisitor(visited: RemarkVisitedNodes) {
@@ -483,6 +485,10 @@ export function generateLessonTOC(nodes: any[], vFile) {
   }
 }
 
+export function getCacheCourseSlug() {
+  return utils.isObjectEmpty(cache.index) ? "" : Object.values(cache.index)[0].frontmatter.slug
+}
+
 export function getCacheSections(outputDirPath: string) {
   return Object.entries(cache.index).slice(1)
     .map(([inDirPath, data]) => ({
@@ -555,7 +561,8 @@ export function processGodotProjects(workingDirPath: string, outputDirPath: stri
 }
 
 export function processGodotProject(godotProjectDirPath: string, outputDirPath: string) {
-  const outDirPath = p.join(outputDirPath, PUBLIC_DIR, `${p.basename(godotProjectDirPath)}${ZIP_EXT}`)
+  const slug = getCacheCourseSlug()
+  const outDirPath = p.join(outputDirPath, PUBLIC_DIR, COURSES_ROOT_PATH, slug, `${p.basename(godotProjectDirPath)}${ZIP_EXT}`)
   const godotProjectFilePaths = utils.fsFind(
     godotProjectDirPath,
     {

@@ -60,7 +60,7 @@ export async function runCli() {
 
   const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
   const contentDirPath = p.join(workingDirPath, "content")
-  const outputDirPath = p.join(workingDirPath, "content-processed")
+  const outputDirPath = args.rest.length == 2 ? fs.realpathSync(args.rest[1]) : p.join(workingDirPath, "build")
 
   if (args.help) {
     help(args)
@@ -90,7 +90,7 @@ export async function runCli() {
   }
 
   if (args.buildRelease) {
-    const releasesDirPath = p.join(workingDirPath, "content-releases")
+    const releasesDirPath = p.join(workingDirPath, "releases")
     buildRelease(workingDirPath, outputDirPath, releasesDirPath)
   }
 
