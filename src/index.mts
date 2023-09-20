@@ -268,6 +268,7 @@ export function indexSection(inDirPath: string) {
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache.index[contentDirPath]
   let outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_FILE)
+  logger.debug(`Processing ${outFilePath}`)
 
   const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
@@ -301,9 +302,9 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     firstLessonUrl: toc[0].lessons[0].url,
     toc,
   }))
-  logger.debug(`Processed ${outFilePath}`)
 
   outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
+  logger.debug(`Processing ${outFilePath}`)
   fs.writeFileSync(outFilePath, JSON.stringify(
     Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
       const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(lesson.out.slug, inFilePath)
@@ -317,7 +318,6 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
       }
     })
   ))
-  logger.debug(`Processed ${outFilePath}`)
 }
 
 export async function processMarkdownFiles(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
@@ -409,11 +409,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   const outFilePath = getMarkdownFileOutPath(slugs, outputDirPath)
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
+    logger.debug(`Processing ${outFilePath}`)
     let vFile = new VFile(content)
     const serializedMDX = await getSerialized(
       vFile,
       frontmatter,
-      [remarkProcessMarkdownFile(inFilePath, workingDirPath)],
+      [remarkProcessMarkdownFile(inFilePath, workingDirPath, outputDirPath)],
       [rehypeProcessMarkdownFile],
     )
     const out: Lesson = {
@@ -432,7 +433,6 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
       out
     }
-    logger.debug(`Processed ${outFilePath}`)
   } else if (!cache.lessons.hasOwnProperty(inFilePath)) {
     cache.lessons[inFilePath] = {
       in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
@@ -442,7 +442,7 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   }
 }
 
-export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: string) {
+export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: string, outputDirPath: string) {
   return () => (tree) => {
     const imagePathPrefix = p.posix.join(
       COURSES_ROOT_PATH,
@@ -456,7 +456,7 @@ export function remarkProcessMarkdownFile(inFilePath: string, workingDirPath: st
     visit(tree, remarkVisitor(visited))
 
     rewriteImagePaths(visited.images, inFilePath, imagePathPrefix)
-    rewriteLinks(visited.links, inFilePath, workingDirPath)
+    rewriteLinks(visited.links, inFilePath, workingDirPath, outputDirPath)
   }
 }
 
@@ -556,18 +556,25 @@ export function rewriteImagePaths(nodes: any[], inFilePath: string, imagePathPre
   }
 }
 
-export function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: string) {
+export async function rewriteLinks(nodes: any[], inFilePath: string, workingDirPath: string, outputDirPath: string) {
   const inDirPath = p.dirname(inFilePath)
   for (let node of nodes) {
-    let checkFilePath = ""
-    if (node.url.startsWith(COURSE_ROOT_PATH)) {
-      checkFilePath = p.join(workingDirPath, "..", p.relative(COURSE_ROOT_PATH, node.url))
-    } else {
-      checkFilePath = p.resolve(inDirPath, node.url)
+    const [checkFilePath, anchor] = p.posix.resolve(inDirPath, node.url).split("#")
+    const doRewriteURL = (
+      utils.checkPathExists(
+        checkFilePath,
+        `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`
+      )
+      && p.extname(checkFilePath) === MD_EXT
+      && p.basename(checkFilePath) !== IN_INDEX_FILE
+    )
+    if (doRewriteURL) {
+      await processMarkdownFile(checkFilePath, workingDirPath, outputDirPath)
+      node.url = cache.lessons[checkFilePath].out.url
+      if (anchor) {
+        node.url = `${node.url}#${anchor}`
+      }
     }
-
-    utils.checkPathExists(checkFilePath, `Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`)
-    node.url = node.url.replace(MD_EXT, "")
   }
 }
 
