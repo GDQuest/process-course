@@ -2,7 +2,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects } from "./index.mjs"
+import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects, indexSections, indexGodotProjects } from "./index.mjs"
 
 type Args = Record<string, string | boolean> & {
   _: {
@@ -82,6 +82,10 @@ export async function runCli() {
 
   if (args.watchContent) {
     args.processContent = true
+  }
+
+  if (args.watchGodot) {
+    args.processGodot = true
   }
 
   if (args.processAll && !(args.processContent || args.processGodot)) {

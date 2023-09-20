@@ -66,6 +66,7 @@ type CacheLessonEntry = {
 type Cache = {
   index: Record<string, Index>,
   lessons: Record<string, CacheLessonEntry>,
+  godotProjects: Record<string, string[]>,
 }
 
 const COURSE_ROOT_PATH = "/course"
@@ -76,6 +77,7 @@ const PUBLIC_DIR = "public"
 const MD_EXT = ".md"
 const JSON_EXT = ".json"
 const ZIP_EXT = ".zip"
+const GDSCRIPT_EXT = ".gd"
 const IN_INDEX_FILE = `_index${MD_EXT}`
 const OUT_INDEX_FILE = `index${JSON_EXT}`
 const OUT_INDEX_SEARCH_FILE = `index-search${JSON_EXT}`
@@ -87,7 +89,10 @@ const SECTION_REGEX = /\d+\..+/
 const HTML_COMMENT_REGEX = /<\!--.*?-->/g
 const GDSCRIPT_CODEBLOCK_REGEX = /(```gdscript:.*)(_v\d+)(.gd)/g
 const CODEBLOCK_REGEX = /```[a-z]*\n[\s\S]*?\n```/g
+const INCLUDE_REGEX = /{{\s*include\s+([^\s]+)(?:\s+([^\s]+))?\s*}}/g
+const CODEBLOCK_INCLUDE_FILE_REGEX = /(```gdscript)(\s*\n)(\{\{\s*include\s+([^}\s]+))/g
 const OVERLY_LINE_BREAKS_REGEX = /\n{3,}/g
+const ANCHOR_TAGS_REGEX = /^.*#(ANCHOR|END).*\r?\n?/gm
 
 const SLUGIFY_OPTIONS = {
   replacement: "-",
@@ -100,6 +105,7 @@ export const PRODUCTION = "production"
 let cache: Cache = {
   index: {},
   lessons: {},
+  godotProjects: {},
 }
 export let logger = pino({ name: "processCourse" })
 
@@ -109,15 +115,10 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 }
 
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
-  if (utils.isObjectEmpty(cache.index)) {
-    indexSections(contentDirPath)
-  }
-
+  indexSections(contentDirPath)
+  indexGodotProjects(workingDirPath)
   const watcher = chokidar.watch(contentDirPath, { ignored: "*~" })
   watcher.on("all", (eventName, inPath) => {
-    if (["add", "addDir"].includes(eventName)) {
-      return
-    }
     if (eventName === "unlink" || eventName === "unlinkDir") {
       fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
       if (p.basename(inPath) === IN_INDEX_FILE) {
@@ -132,7 +133,7 @@ export function watchContent(workingDirPath: string, contentDirPath: string, out
         }).forEach((path) => delete cache.lessons[path])
       }
       logger.debug(`Removed ${inPath}`)
-    } else if (eventName === "change") {
+    } else if (["add", "change"].includes(eventName)) {
       if (p.basename(inPath) === IN_INDEX_FILE) {
         indexSection(p.dirname(inPath))
       } else if (p.extname(inPath) === MD_EXT) {
@@ -159,10 +160,7 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
       godotProjectDirPath,
       { ignored: ["*~", ...GODOT_IGNORED.map((path) => `**/${path}`)] }
     )
-    watcher.on("all", (eventName) => {
-      if (["add", "addDir"].includes(eventName)) {
-        return
-      }
+    watcher.on("all", () => {
       processGodotProject(godotProjectDirPath, outputDirPath)
     })
   }
@@ -175,12 +173,16 @@ export async function processAll(workingDirPath: string, contentDirPath: string,
 
 export async function processContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
+  indexGodotProjects(workingDirPath)
   await processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath)
   processFinal(contentDirPath, outputDirPath)
   processOtherFiles(contentDirPath, outputDirPath)
 }
 
 export function indexSections(contentDirPath: string) {
+  if (!utils.isObjectEmpty(cache.index)) {
+    return
+  }
   const inDirPaths = [contentDirPath, ...utils.fsFind(
     contentDirPath,
     {
@@ -192,6 +194,34 @@ export function indexSections(contentDirPath: string) {
   for (const inDirPath of inDirPaths) {
     indexSection(inDirPath)
   }
+}
+
+export function indexGodotProjects(workingDirPath: string) {
+  if (!utils.isObjectEmpty(cache.godotProjects)) {
+    return
+  }
+  const godotProjectDirPaths = utils.fsFind(
+    workingDirPath,
+    {
+      depthLimit: 0,
+      nofile: true,
+      filter: ({ path }) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE)),
+    },
+  )
+  for (const godotProjectDirPath of godotProjectDirPaths) {
+    indexGodotProject(godotProjectDirPath)
+  }
+}
+
+export function indexGodotProject(godotProjectDirPath: string) {
+  cache.godotProjects[godotProjectDirPath] = utils.fsFind(
+    godotProjectDirPath,
+    {
+      nodir: true,
+      traverseAll: true,
+      filter: ({ path }) => p.extname(path) === GDSCRIPT_EXT && ![...GODOT_IGNORED, "solutions"].some((dir) => path.includes(dir))
+    }
+  )
 }
 
 export function buildRelease(
@@ -228,7 +258,7 @@ export function indexSection(inDirPath: string) {
   }
 
   if (inFileContent !== "") {
-    const { data: frontmatter, content } = matter(inFileContent)
+    const { data: frontmatter, content } = getMatter(inFileContent, inFilePath)
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
     cache.index[inDirPath] = { frontmatter, content }
     logger.debug(`Indexed ${inFilePath}`)
@@ -304,8 +334,73 @@ export async function processMarkdownFiles(workingDirPath: string, contentDirPat
   }
 }
 
+export function getGodotCodeFileDecoration(inPath: string) {
+  inPath = p.posix.normalize(inPath)
+  const doIncludeGodotProjectName = Object.keys(cache.godotProjects).length > 1
+  for (const godotProjectDirPath in cache.godotProjects) {
+    for (const godotCodeFilePath of cache.godotProjects[godotProjectDirPath]) {
+      if (p.posix.normalize(godotCodeFilePath).endsWith(inPath)) {
+        return p.posix.join(p.sep, p.posix.relative(doIncludeGodotProjectName ? p.posix.dirname(godotProjectDirPath) : godotProjectDirPath, godotCodeFilePath))
+      }
+    }
+  }
+  return ""
+}
+
+export function addCodeBlocksFilename(content: string) {
+  return content.replace(CODEBLOCK_INCLUDE_FILE_REGEX, (_, p1, p2, p3, file) => {
+    return `${p1}:${getGodotCodeFileDecoration(file)}${p2}${p3}`
+  })
+}
+
+export function replaceIncludes(content: string, inFilePath: string) {
+  return content.replace(INCLUDE_REGEX, (match, file: string, anchor: string) => {
+    let result = match
+    const codeFilePaths = Object
+      .values(cache.godotProjects)
+      .reduce(
+        (acc, codeFilePaths) =>
+          acc.concat(codeFilePaths.filter((path) => p.posix.normalize(path).endsWith(file)))
+        ,
+        []
+      )
+    let errorMessage = ""
+    if (codeFilePaths.length === 0) {
+      errorMessage = `code file not found for '${inFilePath}'`
+    } else if (codeFilePaths.length > 1) {
+      errorMessage = [
+        `multiple code files with the same name found for '${inFilePath}':`,
+        ...codeFilePaths,
+      ].join("\n")
+    }
+
+    for (const codeFilePath of codeFilePaths) {
+      result = fs.readFileSync(codeFilePath, "utf8")
+      if (anchor) {
+        try {
+          result = extractTextBetweenAnchors(result, anchor).replace(ANCHOR_TAGS_REGEX, "")
+        } catch (error) {
+          errorMessage = `error extracting text between anchors for '${inFilePath}' at '${codeFilePath}'`
+        }
+      }
+      break
+    }
+
+    if (errorMessage) {
+      errorMessage = `'{{ include ${file} ${anchor} }}' ${errorMessage}`
+      if (process.env.NODE_ENV === PRODUCTION) {
+        logger.error(errorMessage)
+        throw Error(errorMessage)
+      } else {
+        logger.warn(errorMessage)
+      }
+    }
+    return result
+  });
+}
+
 export async function processMarkdownFile(inFilePath: string, workingDirPath: string, outputDirPath: string) {
-  const { data: frontmatter, content } = getMatter(fs.readFileSync(inFilePath, "utf8"))
+  const { data: frontmatter, content } = getMatter(fs.readFileSync(inFilePath, "utf8"), inFilePath)
   frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
   if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
     return
@@ -553,15 +648,8 @@ export function updateLessonsPrevNext(sections: Section[]) {
 }
 
 export function processGodotProjects(workingDirPath: string, outputDirPath: string) {
-  const godotProjectDirPaths = utils.fsFind(
-    workingDirPath,
-    {
-      depthLimit: 0,
-      nofile: true,
-      filter: ({ path }) => fs.existsSync(p.join(path, GODOT_PROJECT_FILE)),
-    },
-  )
-  for (const godotProjectDirPath of godotProjectDirPaths) {
+  indexGodotProjects(workingDirPath)
+  for (const godotProjectDirPath in cache.godotProjects) {
     processGodotProject(godotProjectDirPath, outputDirPath)
   }
 }
@@ -573,8 +661,7 @@ export function processGodotProject(godotProjectDirPath: string, outputDirPath: 
     godotProjectDirPath,
     {
       nodir: true,
-      filter: ({ path }) =>
-        !GODOT_IGNORED.some((dir: string) => path.includes(`${dir}`))
+      filter: ({ path }) => !GODOT_IGNORED.some((dir) => path.includes(dir))
     })
 
   if (godotProjectFilePaths.length > 0) {
@@ -629,11 +716,11 @@ export async function getSerialized(vFile: VFile, frontmatter: Record<string, an
   )
 }
 
-export function getMatter(source: string) {
-  return matter(source
-    .replace(HTML_COMMENT_REGEX, "")
-    .replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3")
-  )
+export function getMatter(source: string, inFilePath: string) {
+  source = source.replace(HTML_COMMENT_REGEX, "")
+  source = addCodeBlocksFilename(source).replace(GDSCRIPT_CODEBLOCK_REGEX, "$1$3")
+  source = replaceIncludes(source, inFilePath)
+  return matter(source)
 }
 
 export function setLogger(newLogger: Logger) {
