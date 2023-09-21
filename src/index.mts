@@ -15,6 +15,7 @@ import slugify from "slugify"
 import { execFileSync } from "child_process"
 import { serialize } from "next-mdx-remote/serialize"
 import { visit } from "unist-util-visit"
+import { markdownToTxt } from "markdown-to-txt"
 import { VFile } from "vfile"
 import { MDXRemoteSerializeResult } from "next-mdx-remote"
 import * as utils from "./utils.mjs"
@@ -258,7 +259,8 @@ export function indexSection(inDirPath: string) {
   }
 
   if (inFileContent !== "") {
-    const { data: frontmatter, content } = getMatter(inFileContent, inFilePath)
+    let { data: frontmatter, content } = getMatter(inFileContent, inFilePath)
+    content = content.trim()
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
     cache.index[inDirPath] = { frontmatter, content }
     logger.debug(`Indexed ${inFilePath}`)
@@ -301,6 +303,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
     copy: await getSerialized(new VFile(content), frontmatter),
     firstLessonUrl: toc[0].lessons[0].url,
     toc,
+    sections,
   }))
 
   outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
@@ -400,7 +403,13 @@ export function replaceIncludes(content: string, inFilePath: string) {
 }
 
 export async function processMarkdownFile(inFilePath: string, workingDirPath: string, outputDirPath: string) {
-  const { data: frontmatter, content } = getMatter(fs.readFileSync(inFilePath, "utf8"), inFilePath)
+  let { data: frontmatter, content } = getMatter(fs.readFileSync(inFilePath, "utf8"), inFilePath)
+  let vFile = new VFile(content)
+  content = markdownToTxt(
+    content.trim()
+      .replace(CODEBLOCK_REGEX, "")
+      .replace(OVERLY_LINE_BREAKS_REGEX, "\n\n")
+  )
   frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
   if (process.env.NODE_ENV === PRODUCTION && frontmatter.draft) {
     return
@@ -410,7 +419,6 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
     logger.debug(`Processing ${outFilePath}`)
-    let vFile = new VFile(content)
     const serializedMDX = await getSerialized(
       vFile,
       frontmatter,
@@ -430,12 +438,12 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
     fse.ensureDirSync(p.dirname(outFilePath))
     fs.writeFileSync(outFilePath, JSON.stringify(out))
     cache.lessons[inFilePath] = {
-      in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
-      out
+      in: content,
+      out,
     }
   } else if (!cache.lessons.hasOwnProperty(inFilePath)) {
     cache.lessons[inFilePath] = {
-      in: content.replace(CODEBLOCK_REGEX, "").replace(OVERLY_LINE_BREAKS_REGEX, "\n\n"),
+      in: content,
       out: JSON.parse(fs.readFileSync(outFilePath, "utf8")),
     }
     logger.debug(`Cached ${outFilePath}`)
