@@ -118,32 +118,40 @@ export function watchAll(workingDirPath: string, contentDirPath: string, outputD
 export function watchContent(workingDirPath: string, contentDirPath: string, outputDirPath: string) {
   indexSections(contentDirPath)
   indexGodotProjects(workingDirPath)
-  const watcher = chokidar.watch(contentDirPath, { ignored: "*~" })
-  watcher.on("all", (eventName, inPath) => {
-    if (eventName === "unlink" || eventName === "unlinkDir") {
-      fse.removeSync(p.join(outputDirPath, p.relative(contentDirPath, inPath)))
-      if (p.basename(inPath) === IN_INDEX_FILE) {
-        delete cache.index[p.dirname(inPath)]
-      } else if (p.extname(inPath) === MD_EXT) {
-        delete cache.lessons[inPath]
-      } else if (eventName === "unlinkDir") {
-        utils.fsFind(inPath, {
-          nodir: true,
-          traverseAll: true,
-          filter: ({ path }) => p.extname(path) === MD_EXT
-        }).forEach((path) => delete cache.lessons[path])
+  const watcher = chokidar.watch(contentDirPath, { ignored: "**~" })
+  watcher.on("ready", () => {
+    watcher.on("all", (eventName, inPath) => {
+      if (eventName === "unlink" || eventName === "unlinkDir") {
+        if (p.basename(inPath) === IN_INDEX_FILE) {
+          delete cache.index[p.dirname(inPath)]
+        } else if (p.extname(inPath) === MD_EXT) {
+          let outPath = getMarkdownFileOutPath(
+            getMarkdownFileSlugs(cache.lessons[inPath].out.slug, inPath),
+            outputDirPath
+          )
+          fs.rmSync(outPath, { force: true, recursive: true })
+          delete cache.lessons[inPath]
+          logger.debug(`Removing '${outPath}'`)
+
+          outPath = p.dirname(outPath)
+          if (fs.readdirSync(outPath).length === 0) {
+            fs.rmSync(outPath, { force: true, recursive: true })
+            logger.debug(`Also removing '${outPath}' because it's empty`)
+          }
+        }
+
+      } else if (["add", "change"].includes(eventName)) {
+        if (p.basename(inPath) === IN_INDEX_FILE) {
+          indexSection(p.dirname(inPath))
+        } else if (p.extname(inPath) === MD_EXT) {
+          processMarkdownFile(inPath, workingDirPath, outputDirPath)
+            .then(() => { processFinal(contentDirPath, outputDirPath) })
+            .catch((reason) => logger.warn(reason))
+        } else {
+          processOtherFile(inPath, contentDirPath, outputDirPath)
+        }
       }
-      logger.debug(`Removed ${inPath}`)
-    } else if (["add", "change"].includes(eventName)) {
-      if (p.basename(inPath) === IN_INDEX_FILE) {
-        indexSection(p.dirname(inPath))
-      } else if (p.extname(inPath) === MD_EXT) {
-        processMarkdownFile(inPath, workingDirPath, outputDirPath)
-          .then(() => { processFinal(contentDirPath, outputDirPath) })
-      } else {
-        processOtherFile(inPath, contentDirPath, outputDirPath)
-      }
-    }
+    })
   })
 }
 
@@ -159,10 +167,12 @@ export function watchGodotProjects(workingDirPath: string, outputDirPath: string
   for (const godotProjectDirPath of godotProjectDirPaths) {
     const watcher = chokidar.watch(
       godotProjectDirPath,
-      { ignored: ["*~", ...GODOT_IGNORED.map((path) => `**/${path}`)] }
+      { ignored: ["**/practices/**", "**~", ...GODOT_IGNORED.map((path) => `**/${path}`)] }
     )
-    watcher.on("all", () => {
-      processGodotProject(godotProjectDirPath, outputDirPath)
+    watcher.on("ready", () => {
+      watcher.on("all", () => {
+        processGodotProject(godotProjectDirPath, outputDirPath)
+      })
     })
   }
 }
@@ -235,7 +245,7 @@ export function buildRelease(
     releasesDirPath,
     `${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}${ZIP_EXT}`
   )
-  logger.debug(`Saving the processed course ${slug} at ${outFilePath}`)
+  logger.debug(`Saving the processed course '${slug}' at '${outFilePath}'`)
   fse.ensureDirSync(releasesDirPath)
   const zip = new AdmZip()
   zip.addLocalFolder(outputDirPath)
@@ -263,14 +273,14 @@ export function indexSection(inDirPath: string) {
     content = content.trim()
     frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS)
     cache.index[inDirPath] = { frontmatter, content }
-    logger.debug(`Indexed ${inFilePath}`)
+    logger.debug(`Indexed '${inFilePath}'`)
   }
 }
 
 export async function processFinal(contentDirPath: string, outputDirPath: string) {
   const { frontmatter, content } = cache.index[contentDirPath]
   let outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_FILE)
-  logger.debug(`Processing ${outFilePath}`)
+  logger.debug(`Processing '${outFilePath}'`)
 
   const sections = getCacheSections(outputDirPath)
   updateLessonsPrevNext(sections)
@@ -307,7 +317,7 @@ export async function processFinal(contentDirPath: string, outputDirPath: string
   }))
 
   outFilePath = p.join(outputDirPath, CONTENT_DIR, JSON_DIR, COURSES_ROOT_PATH, frontmatter.slug, OUT_INDEX_SEARCH_FILE)
-  logger.debug(`Processing ${outFilePath}`)
+  logger.debug(`Processing '${outFilePath}'`)
   fs.writeFileSync(outFilePath, JSON.stringify(
     Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
       const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(lesson.out.slug, inFilePath)
@@ -418,7 +428,7 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
   const outFilePath = getMarkdownFileOutPath(slugs, outputDirPath)
   const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath)
   if (doWriteFile) {
-    logger.debug(`Processing ${outFilePath}`)
+    logger.debug(`Processing '${outFilePath}'`)
     const serializedMDX = await getSerialized(
       vFile,
       frontmatter,
@@ -446,7 +456,7 @@ export async function processMarkdownFile(inFilePath: string, workingDirPath: st
       in: content,
       out: JSON.parse(fs.readFileSync(outFilePath, "utf8")),
     }
-    logger.debug(`Cached ${outFilePath}`)
+    logger.debug(`Cached '${outFilePath}'`)
   }
 }
 
