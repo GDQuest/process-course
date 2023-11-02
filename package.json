@@ -36,7 +36,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "@gdquest/process-course-utils": "workspace:^",
+		"@gdquest/process-course-utils": "workspace:^",
     "pino": "^8.15.0"
   }
 }
