@@ -11,7 +11,7 @@
     "start": "npx --yes tsx src/cli.ts",
     "build": "tsc",
     "watch": "tsc --watch",
-    "publish": "npm run build && npm publish"
+    "prepublish": "npm run build"
   },
   "keywords": [],
   "author": "GDQuest <info@gdquest.org>",
