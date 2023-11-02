@@ -2,7 +2,7 @@
 import * as fs from "fs"
 import p from "path"
 import pino from "pino"
-import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects, indexSections, indexGodotProjects } from "./index.mjs"
+import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects, indexSections, indexGodotProjects } from "@gdquest/process-course-utils"
 
 type Args = Record<string, string | boolean> & {
   _: {
