@@ -12,7 +12,7 @@ import rehypeCodeTitles from "rehype-code-titles";
 import rehypePrism from "rehype-prism-plus";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import slugify from "slugify";
-import { execSync, execFileSync } from "child_process";
+import { execSync, execFileSync, spawnSync } from "child_process";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import { serialize } from "next-mdx-remote/serialize";
 import { visit } from "unist-util-visit";
@@ -874,13 +874,13 @@ export function processGodotProject(
 		);
 		if (fs.existsSync(godotPracticeBuildPath)) {
 			logger.debug(
-				execFileSync(GODOT_EXE, [
+				spawnSync(GODOT_EXE, [
 					"--path",
 					godotProjectDirPath,
 					"--headless",
 					"--script",
 					godotPracticeBuildPath,
-				]).toString("utf8")
+				], {encoding: 'utf-8'})
 			);
 		}
 
