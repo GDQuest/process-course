@@ -148,7 +148,7 @@ export async function runCli() {
 
 	ensure(outputDirPath, !options.mkdir);
 
-	const releasesDirPath = join(workingDirPath, "releases");
+	const releasesDirPath = join(workingDirPath, "content-releases");
 
 	logger.info({
 		workingDirPath,

@@ -12,7 +12,7 @@ import rehypeCodeTitles from "rehype-code-titles";
 import rehypePrism from "rehype-prism-plus";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import slugify from "slugify";
-import { execSync, execFileSync, spawnSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import { serialize } from "next-mdx-remote/serialize";
 import { visit } from "unist-util-visit";
