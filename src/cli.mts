@@ -1,155 +1,201 @@
 #!/usr/bin/env node
-import * as fs from "fs"
-import p from "path"
-import pino from "pino"
-import { logger, buildRelease, setLogger, processAll, watchAll, processContent, processGodotProjects, watchContent, watchGodotProjects, indexSections, indexGodotProjects } from "@gdquest/process-course-utils"
+import "ulog";
+import { realpathSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import {
+	parseArgs,
+	bool,
+	number,
+} from "@kinda-ok/convenient/dist/parseArgs.mjs";
+import {
+	logger,
+	buildRelease,
+	processAll,
+	watchAll,
+	processContent,
+	processGodotProjects,
+	watchContent,
+	watchGodotProjects,
+} from "./index.mjs";
+import { red } from "@kinda-ok/convenient-node/dist/cliColors.mjs";
 
-type Args = Record<string, string | boolean> & {
-  _: {
-    executable: string,
-    path: string,
-    options: string[]
-  },
-  rest: string[],
-}
+const makeUsage = (file: string) => `
+  USAGE:
+  ${file} [options] [SOURCE] DESTINATION
+`;
 
-runCli()
+const help = (file: string, options: string[]) => {
+	console.log(`
+  Preprocessor for GDQuest Courses
+  
+  Processes the course content into the format compatible with the new GDSchool platform.
+  
+${makeUsage(file)}
+  
+  EXAMPLES:
+    Process all content in the current directory to an existing "out" directory
+    ${file} -pc out
+  
+    Process all content in the current directory and create an "out" directory
+    ${file} -pc -mk out
+  
+    Watch all files in "in" and create an "out" directory
+    ${file} -w -mk in out
 
-function help(args: Args) {
-  console.log([
-    "",
-    "Preprocessor for GDQuest Courses",
-    "",
-    "Processes the course content into the format compatible with the new GDSchool platform.",
-    "",
-    "USAGE:",
-    `${p.basename(args._.path)} option [options] [workingDirPath] [gdschoolDirPath]`,
-    "",
-    "If 'workingDirPath' isn't specified, the current directory will be used.",
-    "",
-    "options:",
-    `  ${args._.options.join("\n  ")}`,
-    "",
-    "NOTE: At least one option needs to be provided.",
-    "",
-  ].join("\n"))
-}
+  If 'SOURCE' isn't specified, the current directory will be used.
+  it is assumed a 'content' directory can be found inside the working dir.
+  
+  options:
+    ${options.join("\n    ")},
+  
+  NOTE: At least one option needs to be provided.
+`);
+};
+
+const error = (file: string, message: string) => {
+	console.error(red`\n  ` + message);
+	console.error(makeUsage(file));
+	console.error(`use --help or -h for more explanations`);
+	process.exit(1);
+};
 
 export async function runCli() {
-  setLogger(pino({
-    name: "processCourse",
-    level: "info",
-    transport: {
-      target: "pino-pretty",
-      options: {
-        colorize: true,
-        ignore: "pid,hostname",
-        translateTime: "HH:MM:ss",
-      },
-    },
-  }))
+	const { optionsDocs, options, file, rest, unknown } = parseArgs(
+		process.argv,
+		{
+			watchAll: ["w", "run in watch mode", bool()],
+			watchContent: ["wc", "run in watch content mode", bool()],
+			watchGodot: ["wg", "run in watch Godot projects mode", bool()],
+			processAll: ["p", "process all (content & godot projects)", bool()],
+			processContent: ["pc", "process content", bool()],
+			processGodot: ["pg", "process godot projects", bool()],
+			buildRelease: ["b", "build zip release", bool()],
+			mkdir: [
+				"mk",
+				"create destination directories if they don't exist",
+				bool(),
+			],
+			explain: ["e", "TODO: Explain what will happen before doing it", bool()],
+			verbose: ["v", "sets log level to 4 (LOG)", bool()],
+			help: ["h", "this text", bool()],
+			logLevel: [
+				"ll",
+				[
+					"set verbosity from TRACE (6) to ERROR (1).",
+					"See https://www.npmjs.com/package/ulog#levels",
+				],
+				number(2, 1, 6),
+			],
+		}
+	);
 
-  const args = readArgs({
-    A: ["watchAll", "run in watch mode"],
-    C: ["watchContent", "run in watch content mode"],
-    G: ["watchGodot", "run in watch Godot projects mode"],
-    a: ["processAll", "process all (content & godot projects)"],
-    b: ["buildRelease", "build zip release. Implies '-a' and ignores the gdschool path"],
-    c: ["processContent", "process content"],
-    g: ["processGodot", "process godot projects"],
-    h: ["help", "this text"],
-    v: ["verbose", "set verbosity"],
-  })
+	//@ts-expect-error We do not have the TS API of ulog, which adds those constants
+	logger.level = options.verbose ? options.LOG : options.logLevel;
 
-  const workingDirPath = args.rest.length > 0 ? fs.realpathSync(args.rest[0]) : process.cwd()
-  const contentDirPath = p.join(workingDirPath, "content")
-  const outputDirPath = !args.buildRelease && args.rest.length == 2 ? fs.realpathSync(args.rest[1]) : p.join(workingDirPath, "build")
+	logger.debug(options);
 
-  if (args.help || Object.keys(args).filter((k) => !["_", "rest"].includes(k)).length === 0) {
-    help(args)
-    process.exit(0)
-  }
+	if (unknown.length) {
+		error(file, `ERROR: invalid option(s) -- '${unknown.join("', '")}'`);
+	}
 
-  if (args.verbose) {
-    logger.level = "debug"
-  }
+	if (options.help) {
+		help(file, optionsDocs);
+		process.exit(0);
+	}
 
-  if (args.buildRelease || args.watchAll) {
-    args.processAll = true
-    args.processContent = false
-    args.processGodot = false
-  }
+	if (rest.length === 0) {
+		error(
+			file,
+			`ERROR: You need to provide at least one path for the output, or two paths for input and output`
+		);
+	}
 
-  if (args.watchContent) {
-    args.processContent = true
-  }
+	if (options.explain) {
+		error(file, `Explain not implemented yet!`);
+	}
 
-  if (args.watchGodot) {
-    args.processGodot = true
-  }
+	const ensure = (path: string, dieOnError: boolean) => {
+		try {
+			const realPath = realpathSync(path);
+			if (!existsSync(path)) {
+				throw new Error(`Path ${path} does not exist`);
+			}
+			return realPath;
+		} catch (e) {
+			if (dieOnError) {
+				error(file, `could not find or access "${path}"`);
+			} else {
+				logger.warn(`Dir ${path} does not exist. It will be created`);
+				try {
+					mkdirSync(path, { recursive: true });
+					return realpathSync(path);
+				} catch (e) {
+					error(file, `could not create the directory "${path}"`);
+				}
+			}
+		}
+	};
 
-  if (args.processAll && !(args.processContent || args.processGodot)) {
-    await processAll(workingDirPath, contentDirPath, outputDirPath)
-  }
+	const [workingDirPath, outputDirPath] =
+		rest.length > 1 ? [rest[0], rest[1]] : [process.cwd(), rest[0]];
 
-  if (args.processContent) {
-    await processContent(workingDirPath, contentDirPath, outputDirPath)
-  }
+	ensure(workingDirPath, true);
+	const contentDirPath = join(workingDirPath, "content");
+	ensure(contentDirPath, true);
 
-  if (args.processGodot) {
-    processGodotProjects(workingDirPath, outputDirPath)
-  }
+	ensure(outputDirPath, !options.mkdir);
 
-  if (args.buildRelease) {
-    const releasesDirPath = p.join(workingDirPath, "releases")
-    buildRelease(workingDirPath, outputDirPath, releasesDirPath)
-  }
+	const releasesDirPath = join(workingDirPath, "releases");
 
-  if (args.watchAll && !(args.watchContent || args.watchGodot)) {
-    watchAll(workingDirPath, contentDirPath, outputDirPath)
-  }
+	logger.info({
+		workingDirPath,
+		outputDirPath,
+		contentDirPath,
+		releasesDirPath,
+	});
 
-  if (args.watchContent) {
-    watchContent(workingDirPath, contentDirPath, outputDirPath)
-  }
+	if (options.buildRelease || options.watchAll) {
+		options.processAll = true;
+		options.processContent = false;
+		options.processGodot = false;
+	}
 
-  if (args.watchGodot) {
-    watchGodotProjects(workingDirPath, outputDirPath)
-  }
+	if (options.watchContent) {
+		options.processContent = true;
+	}
+
+	if (options.watchGodot) {
+		options.processGodot = true;
+	}
+
+	if (options.processAll && !(options.processContent || options.processGodot)) {
+		await processAll(workingDirPath, contentDirPath, outputDirPath);
+	}
+
+	if (options.processContent) {
+		await processContent(workingDirPath, contentDirPath, outputDirPath);
+	}
+
+	if (options.processGodot) {
+		processGodotProjects(workingDirPath, outputDirPath);
+	}
+
+	if (options.buildRelease) {
+		ensure(releasesDirPath, !options.mkdir);
+		buildRelease(workingDirPath, outputDirPath, releasesDirPath);
+	}
+
+	if (options.watchAll && !(options.watchContent || options.watchGodot)) {
+		watchAll(workingDirPath, contentDirPath, outputDirPath);
+	}
+
+	if (options.watchContent) {
+		watchContent(workingDirPath, contentDirPath, outputDirPath);
+	}
+
+	if (options.watchGodot) {
+		watchGodotProjects(workingDirPath, outputDirPath);
+	}
 }
 
-export function readArgs(expand?: Record<string, [string, string]>) {
-  return process.argv.slice(2).reduce(
-    (acc, str) => {
-      if (!str.startsWith("-")) {
-        acc.rest.push(str)
-      } else {
-        const { dashes, isNegated, key, val } = str.match(
-          /(?<dashes>-+)(?<isNegated>no-)?(?<key>[^=]*)(?:=(?<val>.*))?/
-        )?.groups || { dashes: "-", isNegated: "", key: str, val: "" }
-        const keyword = dashes.length == 1 && expand && key in expand ? expand[key][0] : key
-        const value = isNegated
-          ? false
-          : typeof val === 'undefined' || val === ""
-            ? true
-            : val.toLowerCase() === "true"
-              ? true
-              : val.toLowerCase() === "false"
-                ? false
-                : val
-        acc[keyword] = value
-      }
-      return acc
-    },
-    {
-      _: {
-        executable: process.argv[0],
-        path: process.argv[1],
-        options: expand && Object
-          .entries(expand)
-          .map(([abbr, [opt, desc]]) => `-${abbr}, --${opt.padEnd(16)}${desc}`) || []
-      },
-      rest: [],
-    } as Args
-  )
-}
+runCli();

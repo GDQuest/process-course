@@ -1,4 +1,6 @@
-This script processes the course content into the format compatible with the new GDSchool platform.
+# GDQuest Course Processor
+
+This script processes the course content into the format compatible with the GDSchool platform.
 
 This script is supposed to run on the course repos, triggered by a github workflow (`workflows/release-course.yml`). This workflow will download this script, run it on the content of the course, and create a release of the course that contains a zip archive of the processed content. It will then tell Vercel to rebuild our website using this newly updated content.
 

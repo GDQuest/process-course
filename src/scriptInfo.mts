@@ -1,0 +1,1 @@
+import '@kinda-ok/convenient-node/dist/scriptInfo.cli.mjs'
