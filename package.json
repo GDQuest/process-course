@@ -1,6 +1,6 @@
 {
   "name": "@gdquest/process-course",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "This script processes the course content into the format compatible with the new GDSchool platform. It is not intended to be used outside of the GDQuest team.",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -38,8 +38,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@kinda-ok/convenient-node": "workspace:^",
-    "@types/adm-zip": "^0.5.1",
+		"@types/adm-zip": "^0.5.1",
     "@types/fs-extra": "^11.0.1",
     "@types/klaw-sync": "^6.0.2",
     "@types/lqip-modern": "^1.1.4",
@@ -48,7 +47,8 @@
     "@types/node": "^20.8.10"
   },
   "dependencies": {
-    "@kinda-ok/convenient": "workspace:^",
+		"@kinda-ok/convenient": "workspace:^",
+		"@kinda-ok/convenient-node": "workspace:^",
     "pino": "^8.15.0",
 		"ulog": "2.0.0-beta.19",
 		"adm-zip": "^0.5.10",

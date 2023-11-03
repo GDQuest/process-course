@@ -47,7 +47,10 @@ ${makeUsage(file)}
   
   options:
     ${options.join("\n    ")},
-  
+
+  For processing Godot, an instance of Godot 4 is necessary. Either make sure
+  it's on the $PATH, or specify the environment variable GODOT_EXE.
+
   NOTE: At least one option needs to be provided.
 `);
 };
