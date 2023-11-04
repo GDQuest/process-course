@@ -17,7 +17,6 @@
     "build": "run-s build:*",
     "?build:typescript": "echo Compiles everything to typescript",
     "build:typescript": "tsc",
-    "prepublish": "run-s build",
     "?================= dev ============": "",
     "?dev:watch": "echo Compiles type and watches",
     "dev:watch": "tsc -w",
@@ -25,6 +24,9 @@
     "dev:bump": "npm version prepatch",
     "?dev:bump:release": "echo Bump the version and create a git version and a git commit",
     "dev:bump:release": "npm version patch",
+    "============== lifecycle ===============": "", 
+    "prepublish": "run-s build",
+    "postversion": "git push && git push --tags",
     "?================= info ============": "",
     "?info": "echo Shows some details about commands",
     "info": "npm exec script-info"
