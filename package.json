@@ -1,6 +1,6 @@
 {
   "name": "@gdquest/process-course",
-  "version": "0.1.8-0",
+  "version": "0.1.9-0",
   "description": "This script processes the course content into the format compatible with the new GDSchool platform. It is not intended to be used outside of the GDQuest team.",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -24,7 +24,7 @@
     "dev:bump": "npm version prepatch",
     "?dev:bump:release": "echo Bump the version and create a git version and a git commit",
     "dev:bump:release": "npm version patch",
-    "============== lifecycle ===============": "", 
+    "============== lifecycle ===============": "",
     "prepublish": "run-s build",
     "postversion": "git push && git push --tags",
     "?================= info ============": "",
