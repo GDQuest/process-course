@@ -22,7 +22,7 @@
     "?dev:watch": "echo Compiles type and watches",
     "dev:watch": "tsc -w",
     "?dev:bump": "echo Bump the version and create a git version and a git commit, as a pre-release",
-    "dev:bump": "npm version repatch",
+    "dev:bump": "npm version prepatch",
     "?dev:bump:release": "echo Bump the version and create a git version and a git commit",
     "dev:bump:release": "npm version patch",
     "?================= info ============": "",
