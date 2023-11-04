@@ -48,8 +48,9 @@ ${makeUsage(file)}
   options:
     ${options.join("\n    ")},
 
-  For processing Godot, an instance of Godot 4 is necessary. Either make sure
-  it's on the $PATH, or specify the environment variable GODOT_EXE.
+  For processing Godot files, an instance of Godot 4 is necessary. 
+  ${file} will try to autodetect it, but you can also specify the
+  environment variable GODOT_EXE (or have "godot" in your $PATH).
 
   NOTE: At least one option needs to be provided.
 `);
@@ -92,7 +93,7 @@ export async function runCli() {
 		}
 	);
 
-	//@ts-expect-error We do not have the TS API of ulog, which adds those constants
+	//@ts-expect-error We do not have the TS API of ulog, which adds the level constants and `level` property to logger.
 	logger.level = options.verbose ? options.LOG : options.logLevel;
 
 	logger.debug(options);
@@ -157,29 +158,46 @@ export async function runCli() {
 		releasesDirPath,
 	});
 
+	if(options.watchAll){
+		options.watchContent = false
+		options.watchGodot = false
+	}
+	else if (options.watchContent) {
+		options.processContent = true;
+	}
+	else if (options.watchGodot) {
+		options.processGodot = true;
+	}
+
 	if (options.buildRelease || options.watchAll) {
 		options.processAll = true;
+	}
+	
+	if(options.processAll){
 		options.processContent = false;
 		options.processGodot = false;
 	}
 
-	if (options.watchContent) {
-		options.processContent = true;
+	const allOptionsOff = [ options.processAll,
+		options.processContent,
+		options.processGodot,
+		options.buildRelease,
+		options.watchAll,
+		options.watchContent,
+		options.watchGodot,
+	].every((opt) => opt !== true)
+
+	if(allOptionsOff){
+		error(file, `At least one watch, process, or build option is necessary`)
 	}
 
-	if (options.watchGodot) {
-		options.processGodot = true;
-	}
-
-	if (options.processAll && !(options.processContent || options.processGodot)) {
+	if (options.processAll) {
 		await processAll(workingDirPath, contentDirPath, outputDirPath);
 	}
-
-	if (options.processContent) {
+	else if (options.processContent) {
 		await processContent(workingDirPath, contentDirPath, outputDirPath);
 	}
-
-	if (options.processGodot) {
+	else if (options.processGodot) {
 		processGodotProjects(workingDirPath, outputDirPath);
 	}
 
@@ -188,15 +206,13 @@ export async function runCli() {
 		buildRelease(workingDirPath, outputDirPath, releasesDirPath);
 	}
 
-	if (options.watchAll && !(options.watchContent || options.watchGodot)) {
+	if (options.watchAll) {
 		watchAll(workingDirPath, contentDirPath, outputDirPath);
 	}
-
-	if (options.watchContent) {
+	else if (options.watchContent) {
 		watchContent(workingDirPath, contentDirPath, outputDirPath);
 	}
-
-	if (options.watchGodot) {
+	else if (options.watchGodot) {
 		watchGodotProjects(workingDirPath, outputDirPath);
 	}
 }

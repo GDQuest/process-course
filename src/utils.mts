@@ -36,11 +36,12 @@ export async function downscaleImage(inFilePath: string) {
     const { metadata } = await lqip(inFilePath)
     return metadata.dataURIBase64
   } catch (error) {
+		const message = error instanceof Error ? error.message : 'Error downscaling image'
     if (process.env.NODE_ENV === PRODUCTION) {
-      logger.error(error.message)
+      logger.error(message)
       throw error
     } else {
-      logger.warn(error.message)
+      logger.warn(message)
     }
   }
 }

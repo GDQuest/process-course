@@ -15,19 +15,31 @@ import slugify from "slugify";
 import { execSync, spawnSync } from "child_process";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import { serialize } from "next-mdx-remote/serialize";
-import { visit } from "unist-util-visit";
+import { visit, type BuildVisitor } from "unist-util-visit";
 //import { markdownToTxt } from "markdown-to-txt"
 import { VFile } from "vfile";
 import * as utils from "./utils.mjs";
-import { homedir } from "node:os";
-import { whichSync } from "@kinda-ok/convenient-node/dist/which.mjs";
+import { getGodotPath } from "./godotUtils.mjs";
+import type { Element } from "hast";
+import type { Image, Link, Parent, Node, Heading } from "mdast";
+import type {
+	MdxJsxFlowElement,
+	MdxJsxAttribute,
+	MdxJsxExpressionAttribute,
+} from "mdast-util-mdx-jsx";
 
 type RemarkVisitedNodes = {
-	images: any[];
-	links: any[];
+	images: (Image | MdxJsxFlowElement)[];
+	links: Link[];
 };
 
-type RehypeVisitedNodes = { headings: any[] };
+type SerializeOptions = Exclude<Parameters<typeof serialize>[1], undefined>;
+type PluggableList = Exclude<
+	Exclude<SerializeOptions["mdxOptions"], undefined>["remarkPlugins"],
+	undefined | null
+>;
+
+type RehypeVisitedNodes = { headings: Heading[] };
 
 type Index = {
 	frontmatter: any;
@@ -50,8 +62,8 @@ type Lesson = {
 	toc: LessonTOC[];
 	free: boolean;
 	draft: boolean;
-	prev?: LessonPrevNext;
-	next?: LessonPrevNext;
+	prev: LessonPrevNext | null;
+	next: LessonPrevNext | null;
 };
 type SectionLesson = {
 	outPath: string;
@@ -72,31 +84,9 @@ type Cache = {
 	godotProjects: Record<string, string[]>;
 };
 
-const possibleGodotPaths = [
-	process.env.GODOT_PATH ?? "",
-	`godot`,
-	`/usr/bin/godot`,
-	`/usr/local/bin/godot`,
-	`${homedir()}/bin/godot`,
-	`${homedir()}/.bin/godot`,
-	`${homedir()}/.local/share/hourglass/versions/4.1/godot`,
-].filter(Boolean);
-
-
-const flatpakExists = (packageName: string) => {
-  try {
-    execSync(`flatpak list | grep -q "${packageName}"`, {encoding: 'utf8'}).toString();
-  } 
-  catch (error) {
-    return false
-  }
-	return true
-};
-
-const COURSE_ROOT_PATH = "/course";
-const COURSES_ROOT_PATH = "/courses";
-const CONTENT_DIR = "content";
-const JSON_DIR = "json";
+/** The path to store the output courses on */
+const COURSES_ROOT_FS_PATH = "/courses";
+const OUT_COURSES_PATH = p.join(`content`, `json`, COURSES_ROOT_FS_PATH);
 const PUBLIC_DIR = "public";
 const MD_EXT = ".md";
 const JSON_EXT = ".json";
@@ -121,12 +111,7 @@ const CODEBLOCK_INCLUDE_FILE_REGEX =
 	/(```gdscript)(\s*\n)(\{\{\s*include\s+([^}\s]+))/g;
 const OVERLY_LINE_BREAKS_REGEX = /\n{3,}/g;
 const ANCHOR_TAGS_REGEX = /^.*#(ANCHOR|END).*\r?\n?/gm;
-const GODOT_EXE =
-	possibleGodotPaths.find((p) => whichSync(p, { noThrow: true })) ??
-	(
-		flatpakExists(`org.godotengine.Godot`) &&
-		`flatpak run --branch=stable --arch=x86_64 --command=godot --file-forwarding org.godotengine.Godot`
-	);
+const GODOT_EXE = getGodotPath(process.env.GODOT_PATH);
 
 const SLUGIFY_OPTIONS = {
 	replacement: "-",
@@ -337,9 +322,7 @@ export async function processFinal(
 	const { frontmatter, content } = cache.index[contentDirPath];
 	let outFilePath = p.join(
 		outputDirPath,
-		CONTENT_DIR,
-		JSON_DIR,
-		COURSES_ROOT_PATH,
+		OUT_COURSES_PATH,
 		frontmatter.slug,
 		OUT_INDEX_FILE
 	);
@@ -363,7 +346,7 @@ export async function processFinal(
 			godotVersion: frontmatter.godotVersion,
 			courseDuration: frontmatter.courseDuration,
 			thumbnail: p.posix.join(
-				COURSES_ROOT_PATH,
+				COURSES_ROOT_FS_PATH,
 				frontmatter.slug,
 				p.posix.normalize(p.relative(contentDirPath, thumbnailPath))
 			),
@@ -391,9 +374,7 @@ export async function processFinal(
 
 	outFilePath = p.join(
 		outputDirPath,
-		CONTENT_DIR,
-		JSON_DIR,
-		COURSES_ROOT_PATH,
+		OUT_COURSES_PATH,
 		frontmatter.slug,
 		OUT_INDEX_SEARCH_FILE
 	);
@@ -544,22 +525,22 @@ export async function processMarkdownFile(
 	const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath);
 	if (doWriteFile) {
 		logger.debug(`Processing '${outFilePath}'`);
-		console.log("ddddd");
 		const serializedMDX = await getSerialized(
 			vFile,
 			frontmatter,
 			[remarkProcessMarkdownFile(inFilePath, workingDirPath, outputDirPath)],
 			[rehypeProcessMarkdownFile]
 		);
-		console.log("bbbbbb");
 		const out: Lesson = {
 			serializedMDX,
-			url: p.posix.join(COURSE_ROOT_PATH, ...slugs),
+			url: p.posix.join("/course", ...slugs),
 			title: frontmatter.title,
 			slug: frontmatter.slug,
 			toc: vFile.data.toc as LessonTOC[],
 			free: frontmatter.free || false,
 			draft: frontmatter.draft || false,
+			prev: null,
+			next: null,
 		};
 
 		fse.ensureDirSync(p.dirname(outFilePath));
@@ -582,9 +563,9 @@ export function remarkProcessMarkdownFile(
 	workingDirPath: string,
 	outputDirPath: string
 ) {
-	return () => (tree) => {
+	return () => (tree: Parent) => {
 		const imagePathPrefix = p.posix.join(
-			COURSES_ROOT_PATH,
+			COURSES_ROOT_FS_PATH,
 			...getSlugs(p.dirname(inFilePath))
 		);
 
@@ -600,7 +581,7 @@ export function remarkProcessMarkdownFile(
 }
 
 export function rehypeProcessMarkdownFile() {
-	return (tree, vFile) => {
+	return (tree: Parent, vFile: VFile) => {
 		let visited: RehypeVisitedNodes = { headings: [] };
 		visit(tree, rehypeVisitor(visited));
 
@@ -630,7 +611,7 @@ export function processOtherFile(
 	const outFilePath = p.join(
 		outputDirPath,
 		PUBLIC_DIR,
-		COURSES_ROOT_PATH,
+		COURSES_ROOT_FS_PATH,
 		slug,
 		p.relative(contentDirPath, inFilePath)
 	);
@@ -655,23 +636,17 @@ export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
 }
 
 export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
-	return `${p.join(
-		outputDirPath,
-		CONTENT_DIR,
-		JSON_DIR,
-		COURSES_ROOT_PATH,
-		...slugs
-	)}${JSON_EXT}`;
+	return `${p.join(outputDirPath, OUT_COURSES_PATH, ...slugs)}${JSON_EXT}`;
 }
 
+const isImg = (node: Node): node is Image => node.type === "image";
+const isLink = (node: Node): node is Link => node.type === "link";
+
 export function remarkVisitor(visited: RemarkVisitedNodes) {
-	return (node) => {
-		if (
-			node.type === "image" ||
-			(node.type === "mdxJsxFlowElement" && node.name === "img")
-		) {
+	const visitor: BuildVisitor<Parent> = (node) => {
+		if (isImg(node) || isMdxImage(node)) {
 			visited.images.push(node);
-		} else if (node.type === "link" && p.extname(node.url) === MD_EXT) {
+		} else if (isLink(node) && p.extname(node.url) === MD_EXT) {
 			try {
 				new URL(node.url);
 			} catch {
@@ -679,18 +654,48 @@ export function remarkVisitor(visited: RemarkVisitedNodes) {
 			}
 		}
 	};
+	return visitor;
 }
 
 export function rehypeVisitor(visited: RehypeVisitedNodes) {
-	return (node) => {
-		if (["h1", "h2", "h3"].includes(node.tagName)) {
+	return (node: Node) => {
+		if (isHastHeading(node)) {
 			visited.headings.push(node);
 		}
 	};
 }
 
+const isMdxJsxFlowElement = (node: Parent | Node): node is MdxJsxFlowElement =>
+	node.type === "mdxJsxFlowElement";
+const isMdxImage = (
+	node: Parent | Node
+): node is MdxJsxFlowElement & { name: "img" } =>
+	isMdxJsxFlowElement(node) && node.name === "img";
+
+const isMdxAttr = (
+	attr: MdxJsxAttribute | MdxJsxExpressionAttribute
+): attr is MdxJsxAttribute => "name" in attr;
+const isMdxSrcAttr = (
+	attr: MdxJsxAttribute | MdxJsxExpressionAttribute
+): attr is MdxJsxAttribute & { name: "src" } =>
+	isMdxAttr(attr) && attr.name === "src";
+
+const isElement = (node: Node): node is Element => node.type === "element";
+
+const getHastHeadingRank = (node: Element) => {
+	const name = node.tagName.toLowerCase();
+	const code =
+		name.length === 2 && name.charCodeAt(0) === 104 /* `h` */
+			? name.charCodeAt(1)
+			: 0;
+	return code > 48 /* `0` */ && code < 55 /* `7` */ ? code - 48 /* `0` */ : -1;
+};
+
+const isHastHeading = (node: Node): node is Heading =>
+	isElement(node) && getHastHeadingRank(node) >= 0;
+
 export function rewriteImagePaths(
-	nodes: any[],
+	nodes: (Image | MdxJsxFlowElement)[],
 	inFilePath: string,
 	imagePathPrefix: string
 ) {
@@ -700,19 +705,20 @@ export function rewriteImagePaths(
 		if (node.type === "image") {
 			checkFilePath = p.join(inDirPath, node.url);
 			node.url = p.posix.join(imagePathPrefix, node.url);
-		} else if (node.type === "mdxJsxFlowElement" && node.name === "img") {
-			node.attributes
-				.filter((attr) => attr.name === "src")
-				.map((attr) => {
-					checkFilePath = p.join(inDirPath, attr.value);
-					return { ...attr, value: p.posix.join(imagePathPrefix, attr.value) };
-				});
+		} else if (isMdxImage(node)) {
+			node.attributes.filter(isMdxSrcAttr).map((attr: MdxJsxAttribute) => {
+				checkFilePath = p.join(inDirPath, attr.value + "");
+				return {
+					...attr,
+					value: p.posix.join(imagePathPrefix, attr.value + ""),
+				};
+			});
 		}
 
 		if (checkFilePath !== "") {
 			utils.checkPathExists(
 				checkFilePath,
-				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`
+				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position?.start.line} relative to frontmatter`
 			);
 		}
 	}
@@ -746,12 +752,12 @@ export async function rewriteLinks(
 	}
 }
 
-export function generateLessonTOC(nodes: any[], vFile) {
-	vFile.data.toc = [];
+export function generateLessonTOC(nodes: any[], vFile: VFile) {
+	const toc: LessonTOC[] = [];
 	for (const node of nodes) {
 		for (const child of node.children) {
 			if (child.type === "text") {
-				vFile.data.toc.push({
+				toc.push({
 					headingType: node.tagName,
 					title: child.value,
 					link: `#${node.properties.id}`,
@@ -759,6 +765,7 @@ export function generateLessonTOC(nodes: any[], vFile) {
 			}
 		}
 	}
+	vFile.data.toc = toc;
 }
 
 export function getCacheCourseSlug() {
@@ -858,7 +865,7 @@ export function processGodotProject(
 	const outDirPath = p.join(
 		outputDirPath,
 		PUBLIC_DIR,
-		COURSES_ROOT_PATH,
+		COURSES_ROOT_FS_PATH,
 		slug,
 		`${p.basename(godotProjectDirPath)}${ZIP_EXT}`
 	);
@@ -874,13 +881,17 @@ export function processGodotProject(
 		);
 		if (fs.existsSync(godotPracticeBuildPath)) {
 			logger.debug(
-				spawnSync(GODOT_EXE, [
-					"--path",
-					godotProjectDirPath,
-					"--headless",
-					"--script",
-					godotPracticeBuildPath,
-				], {encoding: 'utf-8'})
+				spawnSync(
+					GODOT_EXE,
+					[
+						"--path",
+						godotProjectDirPath,
+						"--headless",
+						"--script",
+						godotPracticeBuildPath,
+					],
+					{ encoding: "utf-8" }
+				)
 			);
 		}
 
@@ -906,16 +917,15 @@ export function extractTextBetweenAnchors(content: string, anchorName: string) {
 	if (match !== null && !match[1]) {
 		throw Error(`No matching '${anchorName}' anchor found`);
 	}
-	return match[1];
+	return (match ?? [""])[1];
 }
 
 export async function getSerialized(
 	vFile: VFile,
 	frontmatter: Record<string, any>,
-	remarkPlugins = [],
-	rehypePlugins = []
+	remarkPlugins: PluggableList = [],
+	rehypePlugins: PluggableList = []
 ) {
-	console.log("aaaaaaaa");
 	return await serialize(vFile, {
 		mdxOptions: {
 			development: process.env.NODE_ENV !== PRODUCTION,
@@ -923,6 +933,7 @@ export async function getSerialized(
 			rehypePlugins: [
 				rehypeSlug,
 				rehypeCodeTitles,
+				//@ts-ignore
 				rehypePrism,
 				[
 					rehypeAutolinkHeadings,
