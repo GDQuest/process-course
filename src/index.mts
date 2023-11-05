@@ -19,7 +19,7 @@ import { visit, type BuildVisitor } from "unist-util-visit";
 //import { markdownToTxt } from "markdown-to-txt"
 import { VFile } from "vfile";
 import * as utils from "./utils.mjs";
-import { getGodotPath } from "./godotUtils.mjs";
+import { getGodotPathOrDie, spawnGodot4 } from "./godotUtils.mjs";
 import type { Element } from "hast";
 import type { Image, Link, Parent, Node, Heading } from "mdast";
 import type {
@@ -111,7 +111,6 @@ const CODEBLOCK_INCLUDE_FILE_REGEX =
 	/(```gdscript)(\s*\n)(\{\{\s*include\s+([^}\s]+))/g;
 const OVERLY_LINE_BREAKS_REGEX = /\n{3,}/g;
 const ANCHOR_TAGS_REGEX = /^.*#(ANCHOR|END).*\r?\n?/gm;
-const GODOT_EXE = getGodotPath(process.env.GODOT_PATH);
 
 const SLUGIFY_OPTIONS = {
 	replacement: "-",
@@ -858,9 +857,7 @@ export function processGodotProject(
 	godotProjectDirPath: string,
 	outputDirPath: string
 ) {
-	if (!GODOT_EXE) {
-		throw new Error(`Godot executable not found (tested '${GODOT_EXE}')`);
-	}
+	getGodotPathOrDie() // will throw if not found
 	const slug = getCacheCourseSlug();
 	const outDirPath = p.join(
 		outputDirPath,
@@ -881,17 +878,7 @@ export function processGodotProject(
 		);
 		if (fs.existsSync(godotPracticeBuildPath)) {
 			logger.debug(
-				spawnSync(
-					GODOT_EXE,
-					[
-						"--path",
-						godotProjectDirPath,
-						"--headless",
-						"--script",
-						godotPracticeBuildPath,
-					],
-					{ encoding: "utf-8" }
-				)
+				spawnGodot4(godotProjectDirPath, "--script", godotPracticeBuildPath)
 			);
 		}
 
