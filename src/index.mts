@@ -128,7 +128,12 @@ let cache: Cache = {
 
 const jsonPrettyPrint = (data: any) => JSON.stringify(data, null, 2)
 
+
+export const getLogger = (loggerName: string) => anylogger(`processCourse:${loggerName}`)
+
 export const logger = anylogger("processCourse");
+
+
 
 export function watchAll(
 	workingDirPath: string,
@@ -223,6 +228,8 @@ export async function processContent(
 	contentDirPath: string,
 	outputDirPath: string
 ) {
+	const log = getLogger('indexSections')
+	log.debug(`Processing ${contentDirPath}`);
 	indexSections(contentDirPath);
 	indexGodotProjects(workingDirPath);
 	await processMarkdownFiles(workingDirPath, contentDirPath, outputDirPath);
@@ -231,7 +238,10 @@ export async function processContent(
 }
 
 export function indexSections(contentDirPath: string) {
+	const log = getLogger('indexSections')
+	log.debug(`Start`);
 	if (!utils.isObjectEmpty(cache.index)) {
+		log.debug(`Cache Hit`);
 		return;
 	}
 	const inDirPaths = [

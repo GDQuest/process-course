@@ -19,6 +19,8 @@ import {
 	watchGodotProjects,
 } from "./index.mjs";
 import { red } from "@kinda-ok/convenient-node/dist/cliColors.mjs";
+import version from './version.mjs'
+
 
 const makeUsage = (file: string) => `
   USAGE:
@@ -54,6 +56,8 @@ ${makeUsage(file)}
   environment variable GODOT_EXE (or have "godot" in your $PATH).
 
   NOTE: At least one option needs to be provided.
+  
+  version ${version}
 `);
 };
 
