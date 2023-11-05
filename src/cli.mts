@@ -9,7 +9,8 @@ import {
 	string,
 } from "@kinda-ok/convenient/dist/parseArgs.mjs";
 import {
-	logger,
+	getLogger,
+	changeLogLevel,
 	buildRelease,
 	processAll,
 	watchAll,
@@ -99,6 +100,8 @@ export async function runCli() {
 		}
 	);
 
+	changeLogLevel(options.verbose ? 4 : options.logLevel)
+	const logger = getLogger('CLI')
 	//@ts-expect-error We do not have the TS API of ulog, which adds the level constants and `level` property to logger.
 	logger.level = options.verbose ? options.LOG : options.logLevel;
 
