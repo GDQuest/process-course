@@ -128,8 +128,18 @@ let cache: Cache = {
 
 const jsonPrettyPrint = (data: any) => JSON.stringify(data, null, 2)
 
+let logLevel = 3
 
-export const getLogger = (loggerName: string) => anylogger(`processCourse:${loggerName}`)
+export const changeLogLevel = (newLogLevel: number) => {
+	logLevel = newLogLevel
+}
+
+export const getLogger = (loggerName: string) => {
+	const log = anylogger(`process:${loggerName}`)
+	//@ts-expect-error We do not have the TS API of ulog, which adds the level constants and `level` property to logger.
+	log.level = logLevel
+	return log
+}
 
 export const logger = anylogger("processCourse");
 
