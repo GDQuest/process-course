@@ -126,6 +126,8 @@ let cache: Cache = {
 	godotProjects: {},
 };
 
+const jsonPrettyPrint = (data: any) => JSON.stringify(data, null, 2)
+
 export const logger = anylogger("processCourse");
 
 export function watchAll(
@@ -335,7 +337,7 @@ export async function processFinal(
 	fse.ensureDirSync(p.dirname(outFilePath));
 	fs.writeFileSync(
 		outFilePath,
-		JSON.stringify({
+		jsonPrettyPrint({
 			title: frontmatter.title,
 			slug: frontmatter.slug,
 			description: frontmatter.description,
@@ -380,7 +382,7 @@ export async function processFinal(
 	logger.debug(`Processing '${outFilePath}'`);
 	fs.writeFileSync(
 		outFilePath,
-		JSON.stringify(
+		jsonPrettyPrint(
 			Object.entries(cache.lessons).map(([inFilePath, lesson]) => {
 				const [courseSlug, sectionSlug, slug] = getMarkdownFileSlugs(
 					lesson.out.slug,
@@ -543,7 +545,7 @@ export async function processMarkdownFile(
 		};
 
 		fse.ensureDirSync(p.dirname(outFilePath));
-		fs.writeFileSync(outFilePath, JSON.stringify(out));
+		fs.writeFileSync(outFilePath, jsonPrettyPrint(out));
 		cache.lessons[inFilePath] = {
 			in: content,
 			out,
@@ -835,7 +837,7 @@ export function updateLessonsPrevNext(sections: Section[]) {
 					url: nextLesson.out.url,
 				};
 			}
-			fs.writeFileSync(lesson.outPath, JSON.stringify(lesson.out));
+			fs.writeFileSync(lesson.outPath, jsonPrettyPrint(lesson.out));
 		})
 	);
 }
