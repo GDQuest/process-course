@@ -29,7 +29,7 @@
     "postversion": "git push && git push --tags",
     "?================= info ============": "",
     "?info": "echo Shows some details about commands",
-    "info": "npm exec script-info"
+    "info": "script-info"
   },
   "keywords": [],
   "author": "GDQuest <info@gdquest.org>",
