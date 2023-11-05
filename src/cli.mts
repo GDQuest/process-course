@@ -6,6 +6,7 @@ import {
 	parseArgs,
 	bool,
 	number,
+	string,
 } from "@kinda-ok/convenient/dist/parseArgs.mjs";
 import {
 	logger,
@@ -74,6 +75,7 @@ export async function runCli() {
 			processContent: ["pc", "process content", bool()],
 			processGodot: ["pg", "process godot projects", bool()],
 			buildRelease: ["b", "build zip release", bool()],
+			contentDir: ["cd", "specify the content dir", string()],
 			mkdir: [
 				"mk",
 				"create destination directories if they don't exist",
