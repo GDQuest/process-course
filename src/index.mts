@@ -12,14 +12,16 @@ import rehypeCodeTitles from "rehype-code-titles";
 import rehypePrism from "rehype-prism-plus";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import slugify from "slugify";
-import { execSync, spawnSync } from "child_process";
 import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import { serialize } from "next-mdx-remote/serialize";
-import { visit, type BuildVisitor } from "unist-util-visit";
-//import { markdownToTxt } from "markdown-to-txt"
+import { visit } from "unist-util-visit";
 import { VFile } from "vfile";
 import * as utils from "./utils.mjs";
 import { getGodotPathOrDie, spawnGodot4 } from "./godotUtils.mjs";
+//import { markdownToTxt } from "markdown-to-txt" TODO: remove this, what is this for?
+
+// type
+import type { BuildVisitor } from "unist-util-visit";
 import type { Element } from "hast";
 import type { Image, Link, Parent, Node, Heading } from "mdast";
 import type {
