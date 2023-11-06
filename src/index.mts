@@ -238,7 +238,7 @@ export async function processContent(
 	contentDirPath: string,
 	outputDirPath: string
 ) {
-	const log = getLogger('indexSections')
+	const log = getLogger('content')
 	log.debug(`Processing ${contentDirPath}`);
 	indexSections(contentDirPath);
 	indexGodotProjects(workingDirPath);
@@ -248,7 +248,7 @@ export async function processContent(
 }
 
 export function indexSections(contentDirPath: string) {
-	const log = getLogger('indexSections')
+	const log = getLogger('sections')
 	log.debug(`Start`);
 	if (!utils.isObjectEmpty(cache.index)) {
 		log.debug(`Cache Hit`);
@@ -309,6 +309,8 @@ export function buildRelease(
 }
 
 export function indexSection(inDirPath: string) {
+	const log = getLogger('section')
+	log.debug({inDirPath})
 	let inFileContent = "";
 	const inFilePath = p.join(inDirPath, IN_INDEX_FILE);
 	if (utils.checkPathExists(inFilePath)) {
@@ -525,6 +527,7 @@ export async function processMarkdownFile(
 	workingDirPath: string,
 	outputDirPath: string
 ) {
+	const log = getLogger('md')
 	let { data: frontmatter, content } = getMatter(
 		fs.readFileSync(inFilePath, "utf8"),
 		inFilePath
@@ -543,6 +546,7 @@ export async function processMarkdownFile(
 	}
 	const slugs = getMarkdownFileSlugs(frontmatter.slug, inFilePath);
 	const outFilePath = getMarkdownFileOutPath(slugs, outputDirPath);
+	log.log({inFilePath, outFilePath})
 	const doWriteFile = utils.isFileAOlderThanB(outFilePath, inFilePath);
 	if (doWriteFile) {
 		logger.debug(`Processing '${outFilePath}'`);
