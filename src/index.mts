@@ -90,13 +90,11 @@ type Cache = {
 const COURSES_ROOT_FS_PATH = "/courses";
 const OUT_COURSES_PATH = p.join(`content`, `json`, COURSES_ROOT_FS_PATH);
 const PUBLIC_DIR = "public";
-const MD_EXT = ".md";
-const JSON_EXT = ".json";
-const ZIP_EXT = ".zip";
-const GDSCRIPT_EXT = ".gd";
-const IN_INDEX_FILE = `_index${MD_EXT}`;
-const OUT_INDEX_FILE = `index${JSON_EXT}`;
-const OUT_INDEX_SEARCH_FILE = `index-search${JSON_EXT}`;
+const MD_EXT = /\.mdx?/i;
+const GDSCRIPT_INDEXING_EXT = /\.gd|\.shader/i;
+const IN_INDEX_FILE = `_index`;
+const OUT_INDEX_FILE = `index.json`;
+const OUT_INDEX_SEARCH_FILE = `index-search.json`;
 const GODOT_PRACTICE_BUILD = [
 	"addons",
 	"gdquest_practice_framework",
@@ -156,6 +154,18 @@ export function watchAll(
 	watchGodotProjects(workingDirPath, outputDirPath);
 }
 
+export const checkIfFileIsMarkdown = (inPath: string) => {
+	const extname = p.extname(inPath)
+	const isMarkdownFile = MD_EXT.test(extname)
+	const isNotMarkdownFile = !isMarkdownFile
+	const basename = p.basename(inPath, extname)
+	const isIndexFile = isMarkdownFile && basename === IN_INDEX_FILE
+	/** the file IS markdown, but is NOT _index.md */
+	const isNotIndexFile = isMarkdownFile && basename !== IN_INDEX_FILE
+	const extension = extname.slice(1)
+	return { extension, isMarkdownFile, isIndexFile, isNotIndexFile, isNotMarkdownFile }
+}
+
 export function watchContent(
 	workingDirPath: string,
 	contentDirPath: string,
@@ -166,10 +176,11 @@ export function watchContent(
 	const watcher = chokidar.watch(contentDirPath, { ignored: "**~" });
 	watcher.on("ready", () => {
 		watcher.on("all", (eventName, inPath) => {
+			const { isMarkdownFile, isIndexFile } = checkIfFileIsMarkdown(inPath)
 			if (eventName === "unlink" || eventName === "unlinkDir") {
-				if (p.basename(inPath) === IN_INDEX_FILE) {
+				if (isIndexFile) {
 					delete cache.index[p.dirname(inPath)];
-				} else if (p.extname(inPath) === MD_EXT) {
+				} else if (isMarkdownFile) {
 					let outPath = getMarkdownFileOutPath(
 						getMarkdownFileSlugs(cache.lessons[inPath].out.slug, inPath),
 						outputDirPath
@@ -185,9 +196,9 @@ export function watchContent(
 					}
 				}
 			} else if (["add", "change"].includes(eventName)) {
-				if (p.basename(inPath) === IN_INDEX_FILE) {
+				if (isIndexFile) {
 					indexSection(p.dirname(inPath));
-				} else if (p.extname(inPath) === MD_EXT) {
+				} else if (isMarkdownFile) {
 					processMarkdownFile(inPath, workingDirPath, outputDirPath)
 						.then(() => {
 							processFinal(contentDirPath, outputDirPath);
@@ -288,7 +299,7 @@ export function indexGodotProject(godotProjectDirPath: string) {
 		nodir: true,
 		traverseAll: true,
 		filter: ({ path }) =>
-			p.extname(path) === GDSCRIPT_EXT &&
+			GDSCRIPT_INDEXING_EXT.test(p.extname(path)) &&
 			![...GODOT_IGNORED, "solutions"].some((dir) => path.includes(dir)),
 	});
 }
@@ -301,7 +312,7 @@ export function buildRelease(
 	const slug = getCacheCourseSlug();
 	const outFilePath = p.join(
 		releasesDirPath,
-		`${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}${ZIP_EXT}`
+		`${slug}-${utils.getDate()}-${utils.getGitHash(workingDirPath)}.zip`
 	);
 	logger.debug(`Saving the processed course '${slug}' at '${outFilePath}'`);
 	fse.ensureDirSync(releasesDirPath);
@@ -314,10 +325,12 @@ export function indexSection(inDirPath: string) {
 	const log = getLogger('section')
 	log.debug({inDirPath})
 	let inFileContent = "";
-	const inFilePath = p.join(inDirPath, IN_INDEX_FILE);
-	if (utils.checkPathExists(inFilePath)) {
+	const baseFile = p.join(inDirPath, IN_INDEX_FILE)
+	const inFilePath = [`${baseFile}.md`, `${baseFile}.mdx`].find(fs.existsSync);
+	if (inFilePath != null && inFilePath !== '') {
 		inFileContent = fs.readFileSync(inFilePath, "utf8");
 	} else {
+		utils.logOrThrow(log, `Couldn't find required file '${baseFile}.md(x)'`)
 		const defaultName = p.basename(inDirPath).replace(/^\d+\./, "");
 		inFileContent = [
 			"---",
@@ -332,7 +345,7 @@ export function indexSection(inDirPath: string) {
 	}
 
 	if (inFileContent !== "") {
-		let { data: frontmatter, content } = getMatter(inFileContent, inFilePath);
+		let { data: frontmatter, content } = getMatter(inFileContent, `${baseFile}.md`); // TODO: We cannot generate a filename without knowing if we're dealing with md or mdx
 		content = content.trim();
 		frontmatter.slug ??= slugify(frontmatter.title as string, SLUGIFY_OPTIONS);
 		cache.index[inDirPath] = { frontmatter, content };
@@ -433,8 +446,7 @@ export async function processMarkdownFiles(
 	const inFilePaths = utils.fsFind(contentDirPath, {
 		nodir: true,
 		traverseAll: true,
-		filter: ({ path }) =>
-			p.extname(path) === MD_EXT && p.basename(path) !== IN_INDEX_FILE,
+		filter: ({ path }) => checkIfFileIsMarkdown(path).isNotIndexFile
 	});
 	for (const inFilePath of inFilePaths) {
 		await processMarkdownFile(inFilePath, workingDirPath, outputDirPath);
@@ -622,7 +634,7 @@ export function processOtherFiles(
 ) {
 	const inFilePaths = utils.fsFind(contentDirPath, {
 		nodir: true,
-		filter: ({ path }) => p.extname(path) !== MD_EXT,
+		filter: ({ path }) => checkIfFileIsMarkdown(path).isNotMarkdownFile
 	});
 	for (const inFilePath of inFilePaths) {
 		processOtherFile(inFilePath, contentDirPath, outputDirPath);
@@ -663,7 +675,7 @@ export function getMarkdownFileSlugs(slug: string, inFilePath: string) {
 }
 
 export function getMarkdownFileOutPath(slugs: string[], outputDirPath: string) {
-	return `${p.join(outputDirPath, OUT_COURSES_PATH, ...slugs)}${JSON_EXT}`;
+	return `${p.join(outputDirPath, OUT_COURSES_PATH, ...slugs)}.json`;
 }
 
 const isImg = (node: Node): node is Image => node.type === "image";
@@ -673,7 +685,7 @@ export function remarkVisitor(visited: RemarkVisitedNodes) {
 	const visitor: BuildVisitor<Parent> = (node) => {
 		if (isImg(node) || isMdxImage(node)) {
 			visited.images.push(node);
-		} else if (isLink(node) && p.extname(node.url) === MD_EXT) {
+		} else if (isLink(node) && MD_EXT.test(p.extname(node.url))) {
 			try {
 				new URL(node.url);
 			} catch {
@@ -726,6 +738,7 @@ export function rewriteImagePaths(
 	inFilePath: string,
 	imagePathPrefix: string
 ) {
+	const log = getLogger('rewriteImg')
 	for (let node of nodes) {
 		const inDirPath = p.dirname(inFilePath);
 		let checkFilePath = "";
@@ -745,7 +758,8 @@ export function rewriteImagePaths(
 		if (checkFilePath !== "") {
 			utils.checkPathExists(
 				checkFilePath,
-				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position?.start.line} relative to frontmatter`
+				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position?.start.line} relative to frontmatter`,
+				log
 			);
 		}
 	}
@@ -757,6 +771,7 @@ export async function rewriteLinks(
 	workingDirPath: string,
 	outputDirPath: string
 ) {
+	const log = getLogger('rewriteLinks')
 	const inDirPath = p.dirname(inFilePath);
 	for (let node of nodes) {
 		const [checkFilePath, anchor] = p.posix
@@ -765,10 +780,9 @@ export async function rewriteLinks(
 		const doRewriteURL =
 			utils.checkPathExists(
 				checkFilePath,
-				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`
-			) &&
-			p.extname(checkFilePath) === MD_EXT &&
-			p.basename(checkFilePath) !== IN_INDEX_FILE;
+				`Couldn't find required '${checkFilePath}' for '${inFilePath}' at line ${node.position.start.line} relative to frontmatter`,
+				log
+			) && checkIfFileIsMarkdown(checkFilePath).isNotIndexFile
 		if (doRewriteURL) {
 			await processMarkdownFile(checkFilePath, workingDirPath, outputDirPath);
 			node.url = cache.lessons[checkFilePath].out.url;
@@ -892,7 +906,7 @@ export function processGodotProject(
 		PUBLIC_DIR,
 		COURSES_ROOT_FS_PATH,
 		slug,
-		`${p.basename(godotProjectDirPath)}${ZIP_EXT}`
+		`${p.basename(godotProjectDirPath)}.zip`
 	);
 	const godotProjectFilePaths = utils.fsFind(godotProjectDirPath, {
 		nodir: true,
